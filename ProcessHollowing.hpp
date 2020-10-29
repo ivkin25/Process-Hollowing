@@ -183,6 +183,7 @@ private:
     PIMAGE_SECTION_HEADER FindTargetProcessSection(const std::string& sectionName);
     void RelocateTargetProcess(ULONGLONG baseAddressesDelta, PVOID processBaseAddress);
     void UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress);
+    DWORD SectionCharacteristicsToMemoryProtections(DWORD characteristics);
     bool AreProcessesCompatible();
     PVOID ReallocateTargetProcessMemory(unsigned int newMemorySize);
     bool IsProcess64Bit(const HANDLE processHandle);

