@@ -159,49 +159,35 @@ void ProcessHollowing::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE 
 
 void ProcessHollowing::UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddress)
 {
-/*#if defined(_WIN64)
-    if (!is64Bit)
+    if (_isTarget64Bit)
     {
-        WOW64_CONTEXT processContext = { 0 };
-        ZeroMemory(&processContext, sizeof(processContext));
-        processContext.ContextFlags = WOW64_CONTEXT_ALL;
-        if (0 == Wow64GetThreadContext(processMainThread, &processContext))
+        CONTEXT threadContext;
+        threadContext.ContextFlags = CONTEXT_ALL;
+
+        if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
         {
-            std::cout << "284" << std::endl;
+            std::cout << "169" << std::endl;
             // Exception
         }
 
-        processContext.Eax = (DWORD)newEntryPointAddress;
-        if (0 == Wow64SetThreadContext(processMainThread, &processContext))
+        threadContext.Rcx = newEntryPointAddress;
+
+        SetThreadContext(_targetProcessInformation.hThread, &threadContext);
+    }
+    else
+    {
+        WOW64_CONTEXT threadContext;
+        threadContext.ContextFlags = WOW64_CONTEXT_ALL;
+
+        if (0 == Wow64GetThreadContext(_targetProcessInformation.hThread, &threadContext))
         {
-            std::cout << "291" << std::endl;
+            std::cout << "184" << std::endl;
             // Exception
         }
-    }
 
-    return;
-#endif*/
-    CONTEXT processContext = { 0 };
-    ZeroMemory(&processContext, sizeof(processContext));
-    processContext.ContextFlags = CONTEXT_ALL;
-    if (0 == GetThreadContext(_targetProcessInformation.hThread, &processContext))
-    {
-        std::cout << "301" << std::endl;
-        // Exception
-    }
+        threadContext.Eax = (DWORD)newEntryPointAddress;
 
-#if defined(_WIN64) // On 64 bit compiled binaries, CONTEXT will hold
-                    // 64 bit registers
-    processContext.Rcx = (DWORD64)newEntryPointAddress;
-#else               // On 32 bit compiled binaries, CONTEXT will hold
-                    // 32 bit registers
-    processContext.Eax = (DWORD)newEntryPointAddress;
-#endif
-
-    if (0 == SetThreadContext(_targetProcessInformation.hThread, &processContext))
-    {
-        std::cout << "313" << std::endl;
-        // Exception
+        Wow64SetThreadContext(_targetProcessInformation.hThread, &threadContext);
     }
 }
 
