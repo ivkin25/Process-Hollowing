@@ -320,7 +320,15 @@ ULONG ProcessHollowing::GetProcessSubsystem(HANDLE process)
 WORD ProcessHollowing::GetPEFileSubsystem(const PBYTE fileBuffer)
 {
     IMAGE_DOS_HEADER dosHeader = *((PIMAGE_DOS_HEADER)fileBuffer);
-    IMAGE_NT_HEADERS ntHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
+
+    if (IsPEFile64Bit(fileBuffer))
+    {
+        IMAGE_NT_HEADERS64 ntHeaders = *((PIMAGE_NT_HEADERS64)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
+        
+        return ntHeaders.OptionalHeader.Subsystem;
+    }
+
+    IMAGE_NT_HEADERS32 ntHeaders = *((PIMAGE_NT_HEADERS32)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
 
     return ntHeaders.OptionalHeader.Subsystem;
 }
@@ -371,7 +379,15 @@ bool ProcessHollowing::IsWindows64Bit()
 bool ProcessHollowing::IsPEFile64Bit(const PBYTE fileBuffer)
 {
     IMAGE_DOS_HEADER dosHeader = *((PIMAGE_DOS_HEADER)fileBuffer);
-    IMAGE_NT_HEADERS ntHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
+
+    if (IsPEFile64Bit(fileBuffer))
+    {
+        IMAGE_NT_HEADERS64 ntHeaders = *((PIMAGE_NT_HEADERS64)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
+
+        return IMAGE_FILE_MACHINE_AMD64 == ntHeaders.FileHeader.Machine;
+    }
+
+    IMAGE_NT_HEADERS32 ntHeaders = *((PIMAGE_NT_HEADERS32)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
 
     return IMAGE_FILE_MACHINE_AMD64 == ntHeaders.FileHeader.Machine;
 }
