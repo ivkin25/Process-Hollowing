@@ -160,6 +160,12 @@ typedef PROCESS_BASIC_INFORMATION *PPROCESS_BASIC_INFORMATION;
     sizeof(BASE_RELOCATION_BLOCK)) /            \
     sizeof(BASE_RELOCATION_ENTRY)
 
+typedef enum _SUBSYSTEM_INFORMATION_TYPE {
+  SubsystemInformationTypeWin32,
+  SubsystemInformationTypeWSL,
+  MaxSubsystemInformationType
+} SUBSYSTEM_INFORMATION_TYPE, *PSUBSYSTEM_INFORMATION_TYPE;
+
 
 class ProcessHollowing
 {
@@ -171,21 +177,26 @@ public:
 private:
     std::string _targetFilePath;
     std::string _payloadFilePath;
-    DWORD _payloadBufferSize;
-    PBYTE _payloadBuffer;
     PROCESS_INFORMATION _targetProcessInformation;
+    PBYTE _payloadBuffer;
+    DWORD _payloadBufferSize;
+    bool _isTarget64Bit;
+    bool _isPayload64Bit;
 
     PROCESS_INFORMATION CreateSuspendedTargetProcess();
-    _PEB ReadTargetProcessPEB();
+    _PEB ReadProcessPEB(HANDLE process);
     PBYTE ReadFileContents(const std::string& filePath, DWORD& readBytesAmount);
     void WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE sourceFileContents);
-    void UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddress, bool is64Bit);
+    void UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddress);
     PIMAGE_SECTION_HEADER FindTargetProcessSection(const std::string& sectionName);
     void RelocateTargetProcess(ULONGLONG baseAddressesDelta, PVOID processBaseAddress);
     void UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress);
     DWORD SectionCharacteristicsToMemoryProtections(DWORD characteristics);
+    ULONG GetProcessSubsystem(HANDLE process);
+    WORD GetPEFileSubsystem(const PBYTE fileBuffer);
     bool AreProcessesCompatible();
     PVOID ReallocateTargetProcessMemory(unsigned int newMemorySize);
+    bool IsWindows64Bit();
     bool IsProcess64Bit(const HANDLE processHandle);
     bool IsPEFile64Bit(const PBYTE fileBuffer);
 };

