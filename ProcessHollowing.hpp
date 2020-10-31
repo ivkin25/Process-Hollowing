@@ -188,8 +188,11 @@ private:
     PBYTE ReadFileContents(const std::string& filePath, DWORD& readBytesAmount);
     void WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE sourceFileContents);
     void UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddress);
+    PIMAGE_DATA_DIRECTORY GetPayloadDirectoryEntry(DWORD directoryID);
     PIMAGE_SECTION_HEADER FindTargetProcessSection(const std::string& sectionName);
     void RelocateTargetProcess(ULONGLONG baseAddressesDelta, PVOID processBaseAddress);
+    void ProcessTargetRelocationBlock(PBASE_RELOCATION_BLOCK baseRelocationBlock, PBASE_RELOCATION_ENTRY blockEntries,
+        ULONGLONG processBaseAddress, ULONGLONG baseAddressesDelta);
     void UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress);
     DWORD SectionCharacteristicsToMemoryProtections(DWORD characteristics);
     ULONG GetProcessSubsystem(HANDLE process);

