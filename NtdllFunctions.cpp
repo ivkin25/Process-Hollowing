@@ -10,3 +10,4 @@ NtUnmapViewOfSection NtdllFunctions::_NtUnmapViewOfSection = NtdllFunctions::_fu
 NtWriteVirtualMemory NtdllFunctions::_NtWriteVirtualMemory = NtdllFunctions::_functionsLoader["NtWriteVirtualMemory"];
 NtSetContextThread NtdllFunctions::_NtSetContextThread = NtdllFunctions::_functionsLoader["NtSetContextThread"];
 NtResumeThread NtdllFunctions::_NtResumeThread = NtdllFunctions::_functionsLoader["NtResumeThread"];
+NtQueryInformationThread NtdllFunctions::_NtQueryInformationThread = NtdllFunctions::_functionsLoader["NtQueryInformationThread"];

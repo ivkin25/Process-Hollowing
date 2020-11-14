@@ -109,6 +109,62 @@ typedef enum _PROCESSINFOCLASS
     MaxProcessInfoClass             = 0x64
 } PROCESSINFOCLASS;
 
+typedef enum _THREADINFOCLASS
+{
+    ThreadBasicInformation, // q: THREAD_BASIC_INFORMATION
+    ThreadTimes, // q: KERNEL_USER_TIMES
+    ThreadPriority, // s: KPRIORITY
+    ThreadBasePriority, // s: LONG
+    ThreadAffinityMask, // s: KAFFINITY
+    ThreadImpersonationToken, // s: HANDLE
+    ThreadDescriptorTableEntry, // q: DESCRIPTOR_TABLE_ENTRY (or WOW64_DESCRIPTOR_TABLE_ENTRY)
+    ThreadEnableAlignmentFaultFixup, // s: BOOLEAN
+    ThreadEventPair,
+    ThreadQuerySetWin32StartAddress, // q: PVOID
+    ThreadZeroTlsCell, // 10
+    ThreadPerformanceCount, // q: LARGE_INTEGER
+    ThreadAmILastThread, // q: ULONG
+    ThreadIdealProcessor, // s: ULONG
+    ThreadPriorityBoost, // qs: ULONG
+    ThreadSetTlsArrayAddress,
+    ThreadIsIoPending, // q: ULONG
+    ThreadHideFromDebugger, // s: void
+    ThreadBreakOnTermination, // qs: ULONG
+    ThreadSwitchLegacyState,
+    ThreadIsTerminated, // q: ULONG // 20
+    ThreadLastSystemCall, // q: THREAD_LAST_SYSCALL_INFORMATION
+    ThreadIoPriority, // qs: IO_PRIORITY_HINT
+    ThreadCycleTime, // q: THREAD_CYCLE_TIME_INFORMATION
+    ThreadPagePriority, // q: ULONG
+    ThreadActualBasePriority,
+    ThreadTebInformation, // q: THREAD_TEB_INFORMATION (requires THREAD_GET_CONTEXT + THREAD_SET_CONTEXT)
+    ThreadCSwitchMon,
+    ThreadCSwitchPmu,
+    ThreadWow64Context, // q: WOW64_CONTEXT
+    ThreadGroupInformation, // q: GROUP_AFFINITY // 30
+    ThreadUmsInformation, // q: THREAD_UMS_INFORMATION
+    ThreadCounterProfiling,
+    ThreadIdealProcessorEx, // q: PROCESSOR_NUMBER
+    ThreadCpuAccountingInformation, // since WIN8
+    ThreadSuspendCount, // since WINBLUE
+    ThreadHeterogeneousCpuPolicy, // q: KHETERO_CPU_POLICY // since THRESHOLD
+    ThreadContainerId, // q: GUID
+    ThreadNameInformation, // qs: THREAD_NAME_INFORMATION
+    ThreadSelectedCpuSets,
+    ThreadSystemThreadInformation, // q: SYSTEM_THREAD_INFORMATION // 40
+    ThreadActualGroupAffinity, // since THRESHOLD2
+    ThreadDynamicCodePolicyInfo,
+    ThreadExplicitCaseSensitivity, // qs: ULONG; s: 0 disables, otherwise enables
+    ThreadWorkOnBehalfTicket,
+    ThreadSubsystemInformation, // q: SUBSYSTEM_INFORMATION_TYPE // since REDSTONE2
+    ThreadDbgkWerReportActive,
+    ThreadAttachContainer,
+    ThreadManageWritesToExecutableMemory, // MANAGE_WRITES_TO_EXECUTABLE_MEMORY // since REDSTONE3
+    ThreadPowerThrottlingState, // THREAD_POWER_THROTTLING_STATE
+    ThreadWorkloadClass, // THREAD_WORKLOAD_CLASS // since REDSTONE5 // 50
+    MaxThreadInfoClass
+} THREADINFOCLASS;
+
 typedef NTSTATUS (NTAPI *NtQueryInformationProcess)(HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass, PVOID ProcessInformation, ULONG ProcessInformationLength, PULONG ReturnLength);
 typedef NTSTATUS (NTAPI *NtGetContextThread)(HANDLE ThreadHandle, PCONTEXT pContext);
 typedef NTSTATUS (NTAPI *NtReadVirtualMemory)(HANDLE ProcessHandle, PVOID BaseAddress, PVOID Buffer, ULONG BufferSize, PULONG NumberOfBytesRead);
@@ -116,6 +172,7 @@ typedef NTSTATUS (NTAPI *NtUnmapViewOfSection)(HANDLE ProcessHandle, PVOID BaseA
 typedef NTSTATUS (NTAPI *NtWriteVirtualMemory)(HANDLE ProcessHandle, PVOID BaseAddress, PVOID Buffer, ULONG NumberOfBytesToWrite, PULONG NumberOfBytesWritten);
 typedef NTSTATUS (NTAPI *NtSetContextThread)(HANDLE ThreadHanble, PCONTEXT Context);
 typedef NTSTATUS (NTAPI *NtResumeThread)(HANDLE ThreadHandle, PULONG SuspendCount);
+typedef NTSTATUS (NTAPI *NtQueryInformationThread)(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength, PULONG ReturnLength);
 
 class NtdllFunctions
 {
@@ -127,6 +184,7 @@ public:
     static NtWriteVirtualMemory _NtWriteVirtualMemory;
     static NtSetContextThread _NtSetContextThread;
     static NtResumeThread _NtResumeThread;
+    static NtQueryInformationThread _NtQueryInformationThread;
 
 private:
     static DLLFunctionsLoader _functionsLoader;
