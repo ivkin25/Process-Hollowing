@@ -585,7 +585,7 @@ public:
         startupInfo.cb = sizeof(startupInfo);
         ZeroMemory(&processInformation, sizeof(processInformation));
 
-        if (0 == CreateProcessA(nullptr, (LPSTR)_targetFilePath.c_str(),
+        if (0 == CreateProcessA(nullptr, const_cast<LPSTR>(_targetFilePath.c_str()),
             nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr, nullptr, &startupInfo,
             &processInformation))
         {
@@ -598,18 +598,20 @@ public:
 
     PEB64 Read64BitProcessPEB(HANDLE process)
     {
-        PROCESS_BASIC_INFORMATION targetBasicInformation;
-        DWORD returnLength = 0;
+        CONTEXT threadContext;
+        threadContext.ContextFlags = CONTEXT_ALL;
 
-        if (ERROR_SUCCESS != NtdllFunctions::_NtQueryInformationProcess(process, ProcessBasicInformation,
-            &targetBasicInformation, sizeof(targetBasicInformation), &returnLength))
+        if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
         {
-            std::cout << "87" << std::endl;
+            std::cout << "184" << std::endl;
+            // Exception
         }
         
         PEB64 processPEB;
-        if (0 == ReadProcessMemory(process, targetBasicInformation.PebBaseAddress, &processPEB,
-            sizeof(processPEB), nullptr))
+        SIZE_T readBytes = 0;
+
+        if (0 == ReadProcessMemory(process, reinterpret_cast<PVOID>(threadContext.Rdx), &processPEB, sizeof(processPEB), &readBytes)
+            || 0 == readBytes)
         {
             std::cout << "186" << std::endl;
             // Exception
@@ -630,7 +632,7 @@ public:
             // Exception
         }
 
-        ReadProcessMemory(_targetProcessInformation.hProcess, (PVOID)threadContext.Ebx, &processPEB, sizeof(processPEB), nullptr);
+        ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx), &processPEB, sizeof(processPEB), nullptr);
 
         return processPEB;
     }
@@ -731,8 +733,9 @@ public:
 
     bool IsPEFile64Bit(const PBYTE fileBuffer)
     {
-        IMAGE_DOS_HEADER dosHeader = *((PIMAGE_DOS_HEADER)fileBuffer);
-        PIMAGE_FILE_HEADER fileHeader = (PIMAGE_FILE_HEADER)(fileBuffer + dosHeader.e_lfanew + sizeof(DWORD));
+        PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(fileBuffer);
+        // The offset of the FileHeader field is the same for 64- and 32-bit PE files, so it doesn't matter which version of IMAGE_NT_HEADERS we use.
+        PIMAGE_FILE_HEADER fileHeader = reinterpret_cast<PIMAGE_FILE_HEADER>(fileBuffer + dosHeader->e_lfanew + offsetof(IMAGE_NT_HEADERS64, FileHeader));
 
         return IMAGE_FILE_MACHINE_AMD64 == fileHeader->Machine;
     }
