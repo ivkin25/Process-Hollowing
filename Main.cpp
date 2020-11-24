@@ -1,8 +1,14 @@
 #include "HollowingFunctions.hpp"
 #include "Hollowing64Bit.hpp"
 #include "Hollowing32Bit.hpp"
+#include "exceptions/HollowingException.hpp"
 #include <string>
 #include <iostream>
+
+const int IMAGE_PATH_ARGUMENT_INDEX = 0;
+const int TARGET_PATH_ARGUMENT_INDEX = 1;
+const int PAYLOAD_PATH_ARGUMENT_INDEX = 2;
+const int REQUIRED_COMMAND_LINE_ARGUMENTS = 2 + 1; // Plus one because of the always-included path of the image
 
 template<typename T>
 bool tryConstructProcessHollowing(HollowingFunctions** holderPointer, const std::string& targetPath, const std::string& payloadPath)
@@ -13,7 +19,7 @@ bool tryConstructProcessHollowing(HollowingFunctions** holderPointer, const std:
 
         return true;
     }
-    catch (...)
+    catch (std::exception& exception)
     {
         return false;
     }
@@ -21,25 +27,38 @@ bool tryConstructProcessHollowing(HollowingFunctions** holderPointer, const std:
 
 int main(int argc, char* argv[])
 {
+    if (argc < REQUIRED_COMMAND_LINE_ARGUMENTS)
+    {
+        std::cerr << "Not enough arguments!" << std::endl;
+        std::cerr << "Example: " + std::string(argv[IMAGE_PATH_ARGUMENT_INDEX]) + " target.exe payload.exe" << std::endl;
+
+        return 1;
+    }
+
     HollowingFunctions* hollowing = nullptr;
-    std::string targetPath;
-    std::string payloadPath;
-
-    std::cout << "Enter the target's path:" << std::endl;
-    std::cin >> targetPath;
-
-    std::cout << "Enter the payload's path:" << std::endl;
-    std::cin >> payloadPath;
+    std::string targetPath(argv[TARGET_PATH_ARGUMENT_INDEX]);
+    std::string payloadPath(argv[PAYLOAD_PATH_ARGUMENT_INDEX]);
 
     if (!(tryConstructProcessHollowing<Hollowing64Bit>(&hollowing, targetPath, payloadPath) ||
           tryConstructProcessHollowing<Hollowing32Bit>(&hollowing, targetPath, payloadPath)))
     {
-        std::cerr << "The images are not compatible!" << std::endl;
+        std::cerr << "The images are incompatible!" << std::endl;
 
         return 1;
     }
     
-    hollowing->hollow();
+    try
+    {
+        hollowing->hollow();
+    }
+    catch (HollowingException& exception)
+    {
+        std::cerr << exception.what() << std::endl;
+
+        return 1;
+    }
+
+    std::cout << "Successfully hollowed!" << std::endl;
 
     return 0;
 }

@@ -10,6 +10,8 @@
 #include <DbgHelp.h>
 #include <iostream>
 #include "NtdllFunctions.hpp"
+#include "exceptions/HollowingException.hpp"
+#include "exceptions/FileException.hpp"
 
 //0x10 bytes (sizeof)
 struct _STRING64
@@ -550,6 +552,30 @@ typedef enum _SUBSYSTEM_INFORMATION_TYPE {
 
 class HollowingFunctions
 {
+public:
+    HollowingFunctions(const std::string& targetPath, const std::string& payloadPath) :
+        _targetFilePath(targetPath), _payloadFilePath(payloadPath), _targetProcessInformation(CreateSuspendedTargetProcess()),
+        _payloadBuffer(ReadFileContents(payloadPath, _payloadBufferSize)),
+        _isTarget64Bit(IsProcess64Bit(_targetProcessInformation.hProcess)), _isPayload64Bit(IsPEFile64Bit(_payloadBuffer)),
+        _hollowed(false)
+    { }
+
+    ~HollowingFunctions()
+    {
+        delete[] _payloadBuffer;
+
+        // If the hollowing was not successful, then we terminate the target process
+        if (!_hollowed)
+        {
+            TerminateProcess(_targetProcessInformation.hProcess, 0);
+        }
+        
+        CloseHandle(_targetProcessInformation.hProcess);
+        CloseHandle(_targetProcessInformation.hThread);
+    }
+
+    virtual void hollow() = 0;
+
 protected:
     std::string _targetFilePath;
     std::string _payloadFilePath;
@@ -558,23 +584,7 @@ protected:
     DWORD _payloadBufferSize;
     bool _isTarget64Bit;
     bool _isPayload64Bit;
-
-public:
-    HollowingFunctions(const std::string& targetPath, const std::string& payloadPath) :
-        _targetFilePath(targetPath), _payloadFilePath(payloadPath), _targetProcessInformation(CreateSuspendedTargetProcess()),
-        _payloadBuffer(ReadFileContents(payloadPath, _payloadBufferSize)),
-        _isTarget64Bit(IsProcess64Bit(_targetProcessInformation.hProcess)), _isPayload64Bit(IsPEFile64Bit(_payloadBuffer))
-    { }
-
-    ~HollowingFunctions()
-    {
-        delete[] _payloadBuffer;
-        
-        CloseHandle(_targetProcessInformation.hProcess);
-        CloseHandle(_targetProcessInformation.hThread);
-    }
-
-    virtual void hollow() = 0;
+    bool _hollowed;
 
     PROCESS_INFORMATION CreateSuspendedTargetProcess()
     {
@@ -589,8 +599,7 @@ public:
             nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr, nullptr, &startupInfo,
             &processInformation))
         {
-            std::cout << "Could not open the target file!" << std::endl;
-            // Exception
+            throw HollowingException("Could not create the target process!");
         }
 
         return processInformation;
@@ -603,8 +612,7 @@ public:
 
         if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
         {
-            std::cout << "184" << std::endl;
-            // Exception
+            throw HollowingException("An error occured while getting the target's thread context!");
         }
         
         PEB64 processPEB;
@@ -613,8 +621,7 @@ public:
         if (0 == ReadProcessMemory(process, reinterpret_cast<PVOID>(threadContext.Rdx), &processPEB, sizeof(processPEB), &readBytes)
             || 0 == readBytes)
         {
-            std::cout << "186" << std::endl;
-            // Exception
+            throw HollowingException("An error occured while reading the target's PEB!");
         }
 
         return processPEB;
@@ -628,11 +635,13 @@ public:
 
         if (0 == Wow64GetThreadContext(_targetProcessInformation.hThread, &threadContext))
         {
-            std::cout << "184" << std::endl;
-            // Exception
+            throw HollowingException("An error occured while getting the target's thread context!");
         }
 
-        ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx), &processPEB, sizeof(processPEB), nullptr);
+        if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx), &processPEB, sizeof(processPEB), nullptr))
+        {
+            throw HollowingException("An error occured while reading the target's PEB!");
+        }
 
         return processPEB;
     }
@@ -642,8 +651,7 @@ public:
         HANDLE fileHandle = CreateFileA(filePath.c_str(), GENERIC_READ, 0, 0, OPEN_ALWAYS, 0, nullptr);
         if (INVALID_HANDLE_VALUE == fileHandle)
         {
-            std::cout << "194" << std::endl;
-            // Exception
+            throw FileException("Could not open the given file's path!");
         }
 
         DWORD fileSize = GetFileSize(fileHandle, nullptr);
@@ -652,7 +660,7 @@ public:
 
         if (0 == CloseHandle(fileHandle))
         {
-            std::cout << "115" << std::endl;
+            throw FileException("Could not close the file's handle!");
         }
         
         return fileContents;
@@ -673,24 +681,23 @@ public:
         {
             return PAGE_EXECUTE_READWRITE;
         }
-        else if (IMAGE_SCN_MEM_EXECUTE & characteristics && IMAGE_SCN_MEM_READ & characteristics)
+        if (IMAGE_SCN_MEM_EXECUTE & characteristics && IMAGE_SCN_MEM_READ & characteristics)
         {
             return PAGE_EXECUTE_READ;
         }
-        else if (IMAGE_SCN_MEM_READ & characteristics && IMAGE_SCN_MEM_WRITE & characteristics)
+        if (IMAGE_SCN_MEM_READ & characteristics && IMAGE_SCN_MEM_WRITE & characteristics)
         {
             return PAGE_READWRITE;
         }
-        else if (IMAGE_SCN_MEM_READ & characteristics)
+        if (IMAGE_SCN_MEM_READ & characteristics)
         {
             return PAGE_READONLY;
         }
-        else if (IMAGE_SCN_MEM_EXECUTE & characteristics)
+        if (IMAGE_SCN_MEM_EXECUTE & characteristics)
         {
             return PAGE_EXECUTE;
         }
 
-        std::cout << "313 Should not happen!" << std::endl;
         return 0;
     }
 
@@ -710,8 +717,7 @@ public:
 
         if (0 == IsWow64Process(GetCurrentProcess(), &runningUnderWOW64))
         {
-            std::cout << "344" << std::endl;
-            // Exception
+           throw HollowingException("An error occured while checking if the current process is running under WOW64!");
         }
 
         return TRUE == runningUnderWOW64;
@@ -724,8 +730,7 @@ public:
 
         if (0 == IsWow64Process(processHandle, &runningUnderWOW64))
         {
-            std::cout << "324 Error code: " << GetLastError() << std::endl;
-            // Exception
+            throw HollowingException("An error occured while checking if the current process is running under WOW64!");
         }
 
         return (runningUnderWOW64) ? false : IsWindows64Bit();
