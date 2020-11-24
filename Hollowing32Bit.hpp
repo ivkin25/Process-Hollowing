@@ -8,6 +8,8 @@ class Hollowing32Bit : public HollowingFunctions
 public:
     Hollowing32Bit(const std::string& targetPath, const std::string& payloadPath);
     void hollow() override;
+
+private:
     void WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE sourceFileContents) override;
     void UpdateTargetProcessEntryPoint(PVOID newEntryPointAddress) override;
     PIMAGE_DATA_DIRECTORY GetPayloadDirectoryEntry(DWORD directoryID) override;
