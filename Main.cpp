@@ -4,6 +4,7 @@
 #include "exceptions/HollowingException.hpp"
 #include <string>
 #include <iostream>
+#include <memory>
 
 const int IMAGE_PATH_ARGUMENT_INDEX = 0;
 const int TARGET_PATH_ARGUMENT_INDEX = 1;
@@ -11,11 +12,11 @@ const int PAYLOAD_PATH_ARGUMENT_INDEX = 2;
 const int REQUIRED_COMMAND_LINE_ARGUMENTS = 2 + 1; // Plus one because of the always-included path of the image
 
 template<typename T>
-bool tryConstructProcessHollowing(HollowingFunctions** holderPointer, const std::string& targetPath, const std::string& payloadPath)
+bool tryConstructProcessHollowing(std::unique_ptr<HollowingFunctions>& holderPointer, const std::string& targetPath, const std::string& payloadPath)
 {
     try
     {
-        *holderPointer = new T(targetPath, payloadPath);
+        holderPointer = std::make_unique<T>(targetPath, payloadPath);
 
         return true;
     }
@@ -35,12 +36,12 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    HollowingFunctions* hollowing = nullptr;
+    std::unique_ptr<HollowingFunctions> hollowing;
     std::string targetPath(argv[TARGET_PATH_ARGUMENT_INDEX]);
     std::string payloadPath(argv[PAYLOAD_PATH_ARGUMENT_INDEX]);
 
-    if (!(tryConstructProcessHollowing<Hollowing64Bit>(&hollowing, targetPath, payloadPath) ||
-          tryConstructProcessHollowing<Hollowing32Bit>(&hollowing, targetPath, payloadPath)))
+    if (!(tryConstructProcessHollowing<Hollowing64Bit>(hollowing, targetPath, payloadPath) ||
+          tryConstructProcessHollowing<Hollowing32Bit>(hollowing, targetPath, payloadPath)))
     {
         std::cerr << "The images are incompatible!" << std::endl;
 
