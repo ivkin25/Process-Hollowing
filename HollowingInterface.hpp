@@ -550,6 +550,12 @@ typedef enum _SUBSYSTEM_INFORMATION_TYPE {
 } SUBSYSTEM_INFORMATION_TYPE, *PSUBSYSTEM_INFORMATION_TYPE;
 
 
+#ifdef _DEBUG_MODE
+    #define DEBUG(X) X
+#else
+    #define DEBUG(X)
+#endif
+
 class HollowingInterface
 {
 public:

