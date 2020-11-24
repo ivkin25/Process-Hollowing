@@ -1,9 +1,9 @@
-#include "HollowingFunctions.hpp"
+#include "HollowingInterface.hpp"
 
 #ifndef HOLLOWING_64_BIT_H
 #define HOLLOWING_64_BIT_H
 
-class Hollowing64Bit : public HollowingFunctions
+class Hollowing64Bit : public HollowingInterface
 {
 public:
     Hollowing64Bit(const std::string& targetPath, const std::string& payloadPath);

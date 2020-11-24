@@ -1,4 +1,4 @@
-#include "HollowingFunctions.hpp"
+#include "HollowingInterface.hpp"
 #include "Hollowing64Bit.hpp"
 #include "Hollowing32Bit.hpp"
 #include "exceptions/HollowingException.hpp"
@@ -12,7 +12,7 @@ const int PAYLOAD_PATH_ARGUMENT_INDEX = 2;
 const int REQUIRED_COMMAND_LINE_ARGUMENTS = 2 + 1; // Plus one because of the always-included path of the image
 
 template<typename T>
-bool tryConstructProcessHollowing(std::unique_ptr<HollowingFunctions>& holderPointer, const std::string& targetPath, const std::string& payloadPath)
+bool tryConstructProcessHollowing(std::unique_ptr<HollowingInterface>& holderPointer, const std::string& targetPath, const std::string& payloadPath)
 {
     try
     {
@@ -36,7 +36,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::unique_ptr<HollowingFunctions> hollowing;
+    std::unique_ptr<HollowingInterface> hollowing;
     std::string targetPath(argv[TARGET_PATH_ARGUMENT_INDEX]);
     std::string payloadPath(argv[PAYLOAD_PATH_ARGUMENT_INDEX]);
 

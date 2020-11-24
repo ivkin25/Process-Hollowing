@@ -1,9 +1,9 @@
-#include "HollowingFunctions.hpp"
+#include "HollowingInterface.hpp"
 
 #ifndef HOLLOWING_32_BIT_H
 #define HOLLOWING_32_BIT_H
 
-class Hollowing32Bit : public HollowingFunctions
+class Hollowing32Bit : public HollowingInterface
 {
 public:
     Hollowing32Bit(const std::string& targetPath, const std::string& payloadPath);

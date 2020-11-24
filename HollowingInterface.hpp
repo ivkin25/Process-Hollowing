@@ -550,17 +550,17 @@ typedef enum _SUBSYSTEM_INFORMATION_TYPE {
 } SUBSYSTEM_INFORMATION_TYPE, *PSUBSYSTEM_INFORMATION_TYPE;
 
 
-class HollowingFunctions
+class HollowingInterface
 {
 public:
-    HollowingFunctions(const std::string& targetPath, const std::string& payloadPath) :
+    HollowingInterface(const std::string& targetPath, const std::string& payloadPath) :
         _targetFilePath(targetPath), _payloadFilePath(payloadPath), _targetProcessInformation(CreateSuspendedTargetProcess()),
         _payloadBuffer(ReadFileContents(payloadPath, _payloadBufferSize)),
         _isTarget64Bit(IsProcess64Bit(_targetProcessInformation.hProcess)), _isPayload64Bit(IsPEFile64Bit(_payloadBuffer)),
         _hollowed(false)
     { }
 
-    ~HollowingFunctions()
+    ~HollowingInterface()
     {
         delete[] _payloadBuffer;
 

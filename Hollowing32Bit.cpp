@@ -13,7 +13,7 @@
 const std::string RELOCATION_SECTION_NAME = ".reloc";
 
 Hollowing32Bit::Hollowing32Bit(const std::string& targetPath, const std::string& payloadPath) :
-    HollowingFunctions(targetPath, payloadPath)
+    HollowingInterface(targetPath, payloadPath)
 {
     if (!AreProcessesCompatible())
     {
