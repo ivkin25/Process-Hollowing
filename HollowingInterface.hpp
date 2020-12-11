@@ -513,11 +513,6 @@ typedef struct BASE_RELOCATION_ENTRY {
 	USHORT Type : 4;
 } BASE_RELOCATION_ENTRY, *PBASE_RELOCATION_ENTRY;
 
-#define CountRelocationEntries(dwBlockSize)		\
-	(dwBlockSize -								\
-	sizeof(BASE_RELOCATION_BLOCK)) /			\
-	sizeof(BASE_RELOCATION_ENTRY)
-
     typedef struct _PROCESS_BASIC_INFORMATION {
     PVOID Reserved1;
     PVOID PebBaseAddress;
@@ -538,11 +533,6 @@ typedef struct _PROCESS_BASIC_INFORMATION_WOW64
 
 } PROCESS_BASIC_INFORMATION_WOW64, *PPROCESS_BASIC_INFORMATION_WOW64;
 
-#define CountRelocationEntries(dwBlockSize)     \
-    (dwBlockSize -                              \
-    sizeof(BASE_RELOCATION_BLOCK)) /            \
-    sizeof(BASE_RELOCATION_ENTRY)
-
 typedef enum _SUBSYSTEM_INFORMATION_TYPE {
   SubsystemInformationTypeWin32,
   SubsystemInformationTypeWSL,
@@ -554,6 +544,17 @@ typedef enum _SUBSYSTEM_INFORMATION_TYPE {
     #define DEBUG(X) X
 #else
     #define DEBUG(X)
+#endif
+
+
+#ifdef _WIN64
+    typedef CONTEXT CONTEXT64;
+    typedef WOW64_CONTEXT CONTEXT32;
+    #define CONTEXT64_ALL CONTEXT_ALL;
+    #define CONTEXT32_ALL WOW64_CONTEXT_ALL;
+#else
+    typedef CONTEXT CONTEXT32;
+    #define CONTEXT32_ALL CONTEXT_ALL;
 #endif
 
 class HollowingInterface
@@ -570,7 +571,7 @@ public:
     {
         delete[] _payloadBuffer;
 
-        // If the hollowing was not successful, then we terminate the target process
+        // If the hollowing was not successful, we terminate the target process
         if (!_hollowed)
         {
             TerminateProcess(_targetProcessInformation.hProcess, 0);
@@ -611,10 +612,12 @@ protected:
         return processInformation;
     }
 
+#ifdef _WIN64
     PEB64 Read64BitProcessPEB(HANDLE process)
     {
-        CONTEXT threadContext;
-        threadContext.ContextFlags = CONTEXT_ALL;
+        CONTEXT64 threadContext;
+
+        threadContext.ContextFlags = CONTEXT64_ALL;
 
         if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
         {
@@ -632,17 +635,181 @@ protected:
 
         return processPEB;
     }
+#endif
+
+    CONTEXT32 Get32BitProcessThreadContext(HANDLE thread)
+    {
+        CONTEXT32 threadContext;
+
+        threadContext.ContextFlags = CONTEXT32_ALL;
+
+    #ifdef _WIN64
+        if (0 == Wow64GetThreadContext(thread, &threadContext))
+        {
+            throw HollowingException("An error occured while getting the target's thread context!");
+        }
+    #else
+        if (0 == GetThreadContext(thread, &threadContext))
+        {
+            throw HollowingException("An error occured while getting the target's thread context!");
+        }
+    #endif
+
+        return threadContext;
+
+
+
+
+
+
+
+
+
+
+
+
+    /* #ifdef _WIN64
+        CONTEXT32 threadContext;
+        threadContext.ContextFlags = WOW64_CONTEXT_ALL;
+
+        if (0 == Wow64GetThreadContext(thread, &threadContext))
+        {
+            throw HollowingException("An error occured while getting the target's thread context!");
+        }
+
+        return threadContext;
+    #else
+        if (IsWindows64Bit())
+        {
+            CONTEXT32 threadContext;
+            threadContext.ContextFlags = WOW64_CONTEXT_ALL;
+
+            if (0 == Wow64GetThreadContext(thread, &threadContext))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+
+            return threadContext;
+        }
+        else
+        {
+            CONTEXT32 threadContext;
+            threadContext.ContextFlags = CONTEXT_ALL;
+
+            if (0 == GetThreadContext(thread, &threadContext))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+            
+            return threadContext;
+        }
+    #endif
+
+
+
+
+
+
+
+
+
+
+        if (IsWindows64Bit())
+        {
+        #ifdef _WIN64
+            CONTEXT32 threadContext;
+            threadContext.ContextFlags = WOW64_CONTEXT_ALL;
+
+            if (0 == Wow64GetThreadContext(thread, &threadContext))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+
+            return threadContext;
+        #else
+            CONTEXT32 threadContext;
+            threadContext.ContextFlags = CONTEXT_ALL;
+
+            if (0 == GetThreadContext(thread, &threadContext))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+
+            return threadContext;
+        #endif
+        }
+        else
+        {
+            CONTEXT32 threadContext;
+            threadContext.ContextFlags = CONTEXT_ALL;
+
+            if (0 == GetThreadContext(thread, &threadContext))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+            
+            return threadContext;
+        } */
+    }
+
+    void Set32BitProcessThreadContext(HANDLE thread, CONTEXT32 context)
+    {
+    #ifdef _WIN64
+        if (0 == Wow64SetThreadContext(thread, &context))
+        {
+            throw HollowingException("An error occured while getting the target's thread context!");
+        }
+    #else
+        if (0 == SetThreadContext(thread, &context))
+        {
+            throw HollowingException("An error occured while getting the target's thread context!");
+        }
+    #endif
+
+        /* if (IsWindows64Bit())
+        {
+        #ifdef _WIN64
+            if (0 == Wow64SetThreadContext(thread, &context))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+        #else
+            if (0 == SetThreadContext(thread, &context))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+        #endif
+        }
+        else
+        {
+            if (0 == SetThreadContext(thread, &context))
+            {
+                throw HollowingException("An error occured while getting the target's thread context!");
+            }
+        } */
+    }
     
     PEB32 Read32BitProcessPEB(HANDLE process)
     {
-        PEB32 processPEB;
+        /* PEB32 processPEB;
         WOW64_CONTEXT threadContext;
-        threadContext.ContextFlags = WOW64_CONTEXT_INTEGER;
+
+        threadContext.ContextFlags = WOW64_CONTEXT_ALL;
 
         if (0 == Wow64GetThreadContext(_targetProcessInformation.hThread, &threadContext))
         {
             throw HollowingException("An error occured while getting the target's thread context!");
         }
+
+        if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx), &processPEB, sizeof(processPEB), nullptr))
+        {
+            throw HollowingException("An error occured while reading the target's PEB!");
+        }
+
+        return processPEB; */
+
+        PEB32 processPEB;
+        CONTEXT32 threadContext = Get32BitProcessThreadContext(_targetProcessInformation.hThread);
 
         if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx), &processPEB, sizeof(processPEB), nullptr))
         {
@@ -676,6 +843,12 @@ protected:
     virtual void UpdateTargetProcessEntryPoint(PVOID newEntryPointAddress) = 0;
     virtual PIMAGE_DATA_DIRECTORY GetPayloadDirectoryEntry(DWORD directoryID) = 0;
     virtual PIMAGE_SECTION_HEADER FindTargetProcessSection(const std::string& sectionName) = 0;
+
+    inline int CountRelocationEntries(int blockSize)
+    {
+        return (blockSize - sizeof(BASE_RELOCATION_BLOCK)) / sizeof(BASE_RELOCATION_ENTRY);
+    }
+    
     virtual void RelocateTargetProcess(ULONGLONG baseAddressesDelta, PVOID processBaseAddress) = 0;
     virtual void ProcessTargetRelocationBlock(PBASE_RELOCATION_BLOCK baseRelocationBlock, PBASE_RELOCATION_ENTRY blockEntries,
         PVOID processBaseAddress, ULONGLONG baseAddressesDelta) = 0;
@@ -710,7 +883,7 @@ protected:
     virtual ULONG GetProcessSubsystem(HANDLE process) = 0;
     virtual WORD GetPEFileSubsystem(const PBYTE fileBuffer) = 0;
 
-    virtual bool AreProcessesCompatible() = 0;
+    virtual bool ValidateCompatibility() = 0;
 
     PVOID ReallocateTargetProcessMemory(unsigned int newMemorySize);
 

