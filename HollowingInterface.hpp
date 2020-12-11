@@ -562,7 +562,7 @@ class HollowingInterface
 public:
     HollowingInterface(const std::string& targetPath, const std::string& payloadPath) :
         _targetFilePath(targetPath), _payloadFilePath(payloadPath), _targetProcessInformation(CreateSuspendedTargetProcess()),
-        _payloadBuffer(ReadFileContents(payloadPath, _payloadBufferSize)),
+        _payloadBuffer(ReadPayloadFileContents()),
         _isTarget64Bit(IsProcess64Bit(_targetProcessInformation.hProcess)), _isPayload64Bit(IsPEFile64Bit(_payloadBuffer)),
         _hollowed(false)
     { }
@@ -688,21 +688,26 @@ protected:
         return processPEB;
     }
 
-    PBYTE ReadFileContents(const std::string& filePath, DWORD& readBytesAmount)
+    PBYTE ReadPayloadFileContents()
     {
-        HANDLE fileHandle = CreateFileA(filePath.c_str(), GENERIC_READ, 0, 0, OPEN_ALWAYS, 0, nullptr);
+        HANDLE fileHandle = CreateFileA(_payloadFilePath.c_str(), GENERIC_READ, 0, 0, OPEN_EXISTING, 0, nullptr);
         if (INVALID_HANDLE_VALUE == fileHandle)
         {
-            throw FileException("Could not open the given file's path!");
+            throw FileException("Could not open the payload!");
         }
 
         DWORD fileSize = GetFileSize(fileHandle, nullptr);
         PBYTE fileContents = new BYTE[fileSize];
-        ReadFile(fileHandle, fileContents, fileSize, &readBytesAmount, nullptr);
+        DWORD readBytesAmount = 0;
+        if (0 == ReadFile(fileHandle, fileContents, fileSize, &readBytesAmount, nullptr)
+            || fileSize != readBytesAmount)
+        {
+            throw FileException("Could not read the payload's content!");
+        }
 
         if (0 == CloseHandle(fileHandle))
         {
-            throw FileException("Could not close the file's handle!");
+            throw FileException("Could not close the payload file's handle!");
         }
         
         return fileContents;

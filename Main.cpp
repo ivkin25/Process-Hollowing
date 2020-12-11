@@ -23,7 +23,7 @@ bool tryConstructProcessHollowing(std::unique_ptr<HollowingInterface>& holderPoi
 
         return true;
     }
-    catch (IncompatibleImagesException& exception)
+    catch (std::exception& exception)
     {
         exceptionMessage = exception.what();
 
@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
     {
         hollowing->hollow();
     }
-    catch (HollowingException& exception)
+    catch (std::exception& exception)
     {
         std::cerr << exception.what() << std::endl;
 
