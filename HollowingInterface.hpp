@@ -627,8 +627,8 @@ protected:
         PEB64 processPEB;
         SIZE_T readBytes = 0;
 
-        if (0 == ReadProcessMemory(process, reinterpret_cast<PVOID>(threadContext.Rdx), &processPEB, sizeof(processPEB), &readBytes)
-            || 0 == readBytes)
+        if (0 == ReadProcessMemory(process, reinterpret_cast<PVOID>(threadContext.Rdx), &processPEB,
+            sizeof(processPEB), &readBytes) || sizeof(processPEB) != readBytes)
         {
             throw HollowingException("An error occured while reading the target's PEB!");
         }
@@ -656,100 +656,6 @@ protected:
     #endif
 
         return threadContext;
-
-
-
-
-
-
-
-
-
-
-
-
-    /* #ifdef _WIN64
-        CONTEXT32 threadContext;
-        threadContext.ContextFlags = WOW64_CONTEXT_ALL;
-
-        if (0 == Wow64GetThreadContext(thread, &threadContext))
-        {
-            throw HollowingException("An error occured while getting the target's thread context!");
-        }
-
-        return threadContext;
-    #else
-        if (IsWindows64Bit())
-        {
-            CONTEXT32 threadContext;
-            threadContext.ContextFlags = WOW64_CONTEXT_ALL;
-
-            if (0 == Wow64GetThreadContext(thread, &threadContext))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-
-            return threadContext;
-        }
-        else
-        {
-            CONTEXT32 threadContext;
-            threadContext.ContextFlags = CONTEXT_ALL;
-
-            if (0 == GetThreadContext(thread, &threadContext))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-            
-            return threadContext;
-        }
-    #endif
-
-
-
-
-
-
-
-
-
-
-        if (IsWindows64Bit())
-        {
-        #ifdef _WIN64
-            CONTEXT32 threadContext;
-            threadContext.ContextFlags = WOW64_CONTEXT_ALL;
-
-            if (0 == Wow64GetThreadContext(thread, &threadContext))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-
-            return threadContext;
-        #else
-            CONTEXT32 threadContext;
-            threadContext.ContextFlags = CONTEXT_ALL;
-
-            if (0 == GetThreadContext(thread, &threadContext))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-
-            return threadContext;
-        #endif
-        }
-        else
-        {
-            CONTEXT32 threadContext;
-            threadContext.ContextFlags = CONTEXT_ALL;
-
-            if (0 == GetThreadContext(thread, &threadContext))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-            
-            return threadContext;
-        } */
     }
 
     void Set32BitProcessThreadContext(HANDLE thread, CONTEXT32 context)
@@ -765,53 +671,16 @@ protected:
             throw HollowingException("An error occured while getting the target's thread context!");
         }
     #endif
-
-        /* if (IsWindows64Bit())
-        {
-        #ifdef _WIN64
-            if (0 == Wow64SetThreadContext(thread, &context))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-        #else
-            if (0 == SetThreadContext(thread, &context))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-        #endif
-        }
-        else
-        {
-            if (0 == SetThreadContext(thread, &context))
-            {
-                throw HollowingException("An error occured while getting the target's thread context!");
-            }
-        } */
     }
     
     PEB32 Read32BitProcessPEB(HANDLE process)
     {
-        /* PEB32 processPEB;
-        WOW64_CONTEXT threadContext;
-
-        threadContext.ContextFlags = WOW64_CONTEXT_ALL;
-
-        if (0 == Wow64GetThreadContext(_targetProcessInformation.hThread, &threadContext))
-        {
-            throw HollowingException("An error occured while getting the target's thread context!");
-        }
-
-        if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx), &processPEB, sizeof(processPEB), nullptr))
-        {
-            throw HollowingException("An error occured while reading the target's PEB!");
-        }
-
-        return processPEB; */
-
         PEB32 processPEB;
         CONTEXT32 threadContext = Get32BitProcessThreadContext(_targetProcessInformation.hThread);
+        SIZE_T readBytes = 0;
 
-        if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx), &processPEB, sizeof(processPEB), nullptr))
+        if (0 == ReadProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx),
+            &processPEB, sizeof(processPEB), &readBytes) || sizeof(processPEB) != readBytes)
         {
             throw HollowingException("An error occured while reading the target's PEB!");
         }
@@ -856,34 +725,37 @@ protected:
 
     DWORD SectionCharacteristicsToMemoryProtections(DWORD characteristics)
     {
-        if (IMAGE_SCN_MEM_EXECUTE & characteristics && IMAGE_SCN_MEM_READ & characteristics && IMAGE_SCN_MEM_WRITE & characteristics)
+        static DWORD table[2][2][2] = {
+            {
+                // Not executable
+                {PAGE_NOACCESS, PAGE_WRITECOPY},
+                {PAGE_READONLY, PAGE_READWRITE}
+            },
+            {
+                // Executable
+                {PAGE_EXECUTE, PAGE_EXECUTE_WRITECOPY},
+                {PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE}
+            }
+        };
+
+        int executable = (characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
+        int readable = (characteristics & IMAGE_SCN_MEM_READ) != 0;
+        int writable = (characteristics & IMAGE_SCN_MEM_WRITE) != 0;
+
+        DWORD memoryProtections = table[executable][readable][writable];
+
+        if (characteristics & IMAGE_SCN_MEM_NOT_CACHED)
         {
-            return PAGE_EXECUTE_READWRITE;
-        }
-        if (IMAGE_SCN_MEM_EXECUTE & characteristics && IMAGE_SCN_MEM_READ & characteristics)
-        {
-            return PAGE_EXECUTE_READ;
-        }
-        if (IMAGE_SCN_MEM_READ & characteristics && IMAGE_SCN_MEM_WRITE & characteristics)
-        {
-            return PAGE_READWRITE;
-        }
-        if (IMAGE_SCN_MEM_READ & characteristics)
-        {
-            return PAGE_READONLY;
-        }
-        if (IMAGE_SCN_MEM_EXECUTE & characteristics)
-        {
-            return PAGE_EXECUTE;
+            memoryProtections |= PAGE_NOCACHE;
         }
 
-        return 0;
+        return memoryProtections;
     }
 
     virtual ULONG GetProcessSubsystem(HANDLE process) = 0;
     virtual WORD GetPEFileSubsystem(const PBYTE fileBuffer) = 0;
 
-    virtual bool ValidateCompatibility() = 0;
+    virtual void ValidateCompatibility() = 0;
 
     PVOID ReallocateTargetProcessMemory(unsigned int newMemorySize);
 

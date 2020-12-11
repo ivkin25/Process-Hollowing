@@ -20,7 +20,7 @@ private:
     void UpdateBaseAddressInTargetPEB(PVOID processNewBaseAddress) override;
     ULONG GetProcessSubsystem(HANDLE process) override;
     WORD GetPEFileSubsystem(const PBYTE fileBuffer) override;
-    bool ValidateCompatibility() override;
+    void ValidateCompatibility() override;
 };
 
 #endif
